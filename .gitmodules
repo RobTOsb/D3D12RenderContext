@@ -1,0 +1,3 @@
+[submodule "external/D3D12Wrapper"]
+	path = external/D3D12Wrapper
+	url = https://github.com/RobTOsb/D3D12Wrapper
