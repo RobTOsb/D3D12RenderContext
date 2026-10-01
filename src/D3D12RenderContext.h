@@ -231,7 +231,7 @@ private:
 	std::unique_ptr<D3D12DescriptorHeap> resourceDescriptorHeap_;
 	std::unique_ptr<D3D12ImguiRenderer> imguiRenderer_;
 	std::unique_ptr<D3D12DescriptorHeap> cpuOnlyDescriptorHeap_;
-	std::unique_ptr<DXShaderCompiler> shaderCompiler_;
+	std::unique_ptr<SlangShaderCompiler> shaderCompiler_;
 
 	struct UploadBatchEntry
 	{

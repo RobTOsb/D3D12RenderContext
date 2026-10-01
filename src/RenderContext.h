@@ -240,7 +240,7 @@ struct BufferDesc
 
 static constexpr uint32_t InvalidResourceDescriptorIndex = UINT32_MAX;
 
-struct ResourceViewInfo
+struct  ResourceViewInfo
 {
 	ResourceHandle handle = InvalidResourceHandle;
 	DescriptorHandle descriptorIndex = InvalidDescriptorHandle; // raw bindless descriptor-heap slot index
@@ -314,7 +314,7 @@ struct RaytracingPipelineDesc
 	uint32_t maxPayloadSizeInBytes = 0;
 	uint32_t maxAttributeSizeInBytes = 8;
 	uint32_t maxTraceRecursionDepth = 1;
-	std::vector<std::string> defines; // passed to DXC as -D <define>; use them for shader permutations
+	std::vector<std::string> defines; // Slang preprocessor defines ("NAME" or "NAME=VALUE"); use them for shader permutations
 };
 
 struct BLASGeometry
@@ -391,7 +391,7 @@ public:
 
 	virtual void DispatchMesh(uint32_t threadGroupCountX, uint32_t threadGroupCountY, uint32_t threadGroupCountZ) = 0;
 
-	// defines are passed to DXC as -D <define>; use them for shader permutations.
+	// defines are Slang preprocessor defines ("NAME" or "NAME=VALUE"); use them for shader permutations.
 	virtual PipelineHandle CreateComputePipeline(const std::string &shaderPath,
 												 const std::string &entryPoint,
 												 const std::vector<std::string> &defines = {}) = 0;

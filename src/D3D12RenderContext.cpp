@@ -71,7 +71,7 @@ D3D12RenderContext::D3D12RenderContext(Window *window, uint framesInFlight, bool
 	cpuOnlyDescriptorHeap_ = std::make_unique<D3D12DescriptorHeap>(
 			device_->GetNativeDevice(), 1'000'000, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
 
-	shaderCompiler_ = std::make_unique<DXShaderCompiler>();
+	shaderCompiler_ = std::make_unique<SlangShaderCompiler>();
 
 	framesInFlight_ = framesInFlight;
 
@@ -1141,7 +1141,7 @@ PipelineHandle D3D12RenderContext::CreateComputePipeline(const std::string &shad
 	const std::wstring wideShaderPath(shaderPath.begin(), shaderPath.end());
 	const std::wstring wideEntryPoint(entryPoint.begin(), entryPoint.end());
 
-	// CompileShaderFromFile turns any argument not starting with '-'/'/' into a -D <define>.
+	// CompileShaderFromFile turns any argument not starting with '-'/'/' into a preprocessor define.
 	std::vector<std::wstring> arguments;
 	arguments.reserve(defines.size());
 	for (const std::string &define: defines)
@@ -1196,7 +1196,7 @@ PipelineHandle D3D12RenderContext::CreateRaytracingPipeline(const std::string &s
 {
 	const std::wstring wideShaderPath(shaderPath.begin(), shaderPath.end());
 
-	// CompileShaderFromFile turns any argument not starting with '-'/'/' into a -D <define>.
+	// CompileShaderFromFile turns any argument not starting with '-'/'/' into a preprocessor define.
 	std::vector<std::wstring> arguments;
 	arguments.reserve(pipelineDesc.defines.size());
 	for (const std::string &define: pipelineDesc.defines)
@@ -1204,12 +1204,17 @@ PipelineHandle D3D12RenderContext::CreateRaytracingPipeline(const std::string &s
 		arguments.emplace_back(define.begin(), define.end());
 	}
 
-	// A DXR library has no -E entry point; every shader is exported by name instead.
-	const ShaderEntryPoint shaderEntryPoint{ L"", L"lib_6_6" };
+	// Slang only emits the entry points it is given, so every export (raygen/miss/hit/...) is
+	// passed as a lib_6_6 entry point; they are all linked into one DXIL library.
+	std::vector<ShaderEntryPoint> shaderEntryPoints;
+	shaderEntryPoints.reserve(pipelineDesc.exports.size());
+	for (const auto &exportName: pipelineDesc.exports)
+	{
+		shaderEntryPoints.push_back({ std::wstring(exportName.begin(), exportName.end()), L"lib_6_6" });
+	}
+
 	ShaderCompilationResult compileResult =
-			shaderCompiler_->CompileShaderFromFile(wideShaderPath,
-												   std::span<const ShaderEntryPoint>(&shaderEntryPoint, 1),
-												   arguments);
+			shaderCompiler_->CompileShaderFromFile(wideShaderPath, shaderEntryPoints, arguments);
 	if (!compileResult.success)
 	{
 		return InvalidPipelineHandle;
@@ -2232,6 +2237,12 @@ void D3D12RenderContext::CopyBufferRegion(ResourceHandle dstHandle,
 // {
 // 	return std::make_unique<D3D12TextureCompressor>(device_.get(), computeQueue_.get(), resourceDescriptorHeap_.get());
 // }
+
+// The GPU BC encoder (GPUEncoder) is not part of this build; callers must handle a null compressor.
+std::unique_ptr<ITextureCompressor> D3D12RenderContext::CreateTextureCompressor()
+{
+	return nullptr;
+}
 
 ResourceViewInfo D3D12RenderContext::CreateConstantBuffer(uint64_t sizeInBytes, const std::string &debugName)
 {
