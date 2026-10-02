@@ -79,6 +79,12 @@ public:
 	void SetDescriptorHeaps() override;
 	void BeginEvent(const std::string &label) override;
 	void EndEvent() override;
+
+	void BeginProfileScope(const std::string &name) override;
+	void EndProfileScope() override;
+	const GPUProfileScopeStats *GetProfileScopeStats(const std::string &name) const override;
+	std::vector<GPUProfileScopeStats> GetAllProfileScopeStats() const override;
+	void ResetProfiler() override;
 	void SetSRV(uint32_t shaderRegister, ResourceHandle resource) override;
 	void SetUAV(uint32_t shaderRegister, ResourceHandle resource) override;
 	void SetConstantBuffer(uint32_t shaderRegister, ResourceHandle resource) override;
@@ -230,6 +236,7 @@ private:
 	std::unique_ptr<D3D12Swapchain> swapchain_;
 	std::unique_ptr<D3D12DescriptorHeap> resourceDescriptorHeap_;
 	std::unique_ptr<D3D12ImguiRenderer> imguiRenderer_;
+	std::unique_ptr<D3D12GPUProfiler> gpuProfiler_; // created with the per-frame resources
 	std::unique_ptr<D3D12DescriptorHeap> cpuOnlyDescriptorHeap_;
 	std::unique_ptr<SlangShaderCompiler> shaderCompiler_;
 

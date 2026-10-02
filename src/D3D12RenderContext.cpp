@@ -106,6 +106,8 @@ void D3D12RenderContext::CreatePerFrameResources()
 		perFrameResources_[i].fence = device_->CreateFence(0);
 		perFrameResources_[i].fenceValue = 0;
 	}
+
+	gpuProfiler_ = std::make_unique<D3D12GPUProfiler>(device_.get(), graphicsQueue_.get(), framesInFlight_);
 }
 
 void D3D12RenderContext::BeginFrame()
@@ -118,6 +120,9 @@ void D3D12RenderContext::BeginFrame()
 	}
 
 	frameResources.graphicsCommandAllocator->Reset();
+
+	// This slot's fence has passed, so the timestamps it resolved last time round are readable.
+	gpuProfiler_->BeginFrame(currentFrameIndex_);
 }
 
 void D3D12RenderContext::EndFrame()
@@ -145,6 +150,7 @@ void D3D12RenderContext::BeginGraphicsCommandList()
 void D3D12RenderContext::EndGraphicsCommandList()
 {
 	auto &frameResources = perFrameResources_[currentFrameIndex_];
+	gpuProfiler_->EndFrame(frameResources.graphicsCommandList.get());
 	frameResources.graphicsCommandList->EndCommandList();
 }
 
@@ -885,6 +891,36 @@ void D3D12RenderContext::EndEvent()
 {
 	auto &frameResources = perFrameResources_[currentFrameIndex_];
 	frameResources.graphicsCommandList->EndEvent();
+}
+
+void D3D12RenderContext::BeginProfileScope(const std::string &name)
+{
+	auto &frameResources = perFrameResources_[currentFrameIndex_];
+	gpuProfiler_->BeginScope(frameResources.graphicsCommandList.get(), name);
+}
+
+void D3D12RenderContext::EndProfileScope()
+{
+	auto &frameResources = perFrameResources_[currentFrameIndex_];
+	gpuProfiler_->EndScope(frameResources.graphicsCommandList.get());
+}
+
+const GPUProfileScopeStats *D3D12RenderContext::GetProfileScopeStats(const std::string &name) const
+{
+	return gpuProfiler_ ? gpuProfiler_->FindStats(name) : nullptr;
+}
+
+std::vector<GPUProfileScopeStats> D3D12RenderContext::GetAllProfileScopeStats() const
+{
+	return gpuProfiler_ ? gpuProfiler_->GetAllStats() : std::vector<GPUProfileScopeStats>{};
+}
+
+void D3D12RenderContext::ResetProfiler()
+{
+	if (gpuProfiler_)
+	{
+		gpuProfiler_->Reset();
+	}
 }
 
 void D3D12RenderContext::SetRenderTargets(const Resource *renderTargets,

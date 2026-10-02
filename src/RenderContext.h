@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "D3D12GPUProfiler.h"
 #include "D3D12Pipeline.h"
 #include "DirectXTex.h"
 
@@ -380,6 +381,16 @@ public:
 	// GPU debug annotation (shows up as nested events in RenderDoc/PIX). Always pair Begin with End.
 	virtual void BeginEvent(const std::string &label) = 0;
 	virtual void EndEvent() = 0;
+
+	// GPU timestamp profiling on the graphics command list. Results arrive framesInFlight frames later, without
+	// stalling, and each scope keeps a rolling window of samples. Scopes may nest; always pair Begin with End.
+	virtual void BeginProfileScope(const std::string &name) = 0;
+	virtual void EndProfileScope() = 0;
+	// Null until the scope has at least one sample.
+	virtual const GPUProfileScopeStats *GetProfileScopeStats(const std::string &name) const = 0;
+	virtual std::vector<GPUProfileScopeStats> GetAllProfileScopeStats() const = 0;
+	// Drops every sample collected so far, e.g. after changing what's being measured.
+	virtual void ResetProfiler() = 0;
 	virtual void SetSRV(uint32_t shaderRegister, ResourceHandle resource) = 0;
 	virtual void SetUAV(uint32_t shaderRegister, ResourceHandle resource) = 0;
 	virtual void SetConstantBuffer(uint32_t shaderRegister, ResourceHandle resource) = 0;
