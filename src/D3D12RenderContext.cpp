@@ -1,8 +1,8 @@
 #include "D3D12RenderContext.h"
 
 
-#include "Window.h"
 #include "D3D12ImguiRenderer.h"
+#include "Window.h"
 
 #include "fmtlog.h"
 
@@ -63,13 +63,15 @@ D3D12RenderContext::D3D12RenderContext(Window *window, uint framesInFlight, bool
 	resourceDescriptorHeap_ =
 			std::make_unique<D3D12DescriptorHeap>(device_->GetNativeDevice(),
 												  1'000'000, // max size of the resource descriptor heap
-												  D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
+												  D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+												  framesInFlight);
 
 	// Same size/index space as resourceDescriptorHeap_, just non-shader-visible: lets
 	// ClearUAVBufferUint create a CPU-only view at the same index as an existing resource's
 	// shader-visible one, which ClearUnorderedAccessViewUint requires.
-	cpuOnlyDescriptorHeap_ = std::make_unique<D3D12DescriptorHeap>(
-			device_->GetNativeDevice(), 1'000'000, D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
+	cpuOnlyDescriptorHeap_ = std::make_unique<D3D12DescriptorHeap>(device_->GetNativeDevice(),
+																   1'000'000,
+																   D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
 
 	shaderCompiler_ = std::make_unique<SlangShaderCompiler>();
 
@@ -121,6 +123,9 @@ void D3D12RenderContext::BeginFrame()
 
 	frameResources.graphicsCommandAllocator->Reset();
 
+	// The fence wait above means this slot's shader visible heaps are no longer in use by the GPU.
+	resourceDescriptorHeap_->BeginFrame(currentFrameIndex_);
+
 	// This slot's fence has passed, so the timestamps it resolved last time round are readable.
 	gpuProfiler_->BeginFrame(currentFrameIndex_);
 }
@@ -133,6 +138,10 @@ void D3D12RenderContext::EndFrame()
 	const SubmitSyncInfo syncInfo = { .fence = frameResources.fence.get(),
 									  .signalValue = frameResources.fenceValue,
 									  .waitValues = nullptr };
+
+	// Descriptors are read when the command list executes, so anything written while recording
+	// this frame still makes it in.
+	resourceDescriptorHeap_->Flush();
 
 	D3D12CommandList *commandLists[] = { frameResources.graphicsCommandList.get() };
 	graphicsQueue_->ExecuteCommandLists(commandLists, 1, syncInfo);
@@ -174,11 +183,11 @@ void D3D12RenderContext::Present()
 void D3D12RenderContext::InitialiseImgui(void *hwnd)
 {
 	imguiRenderer_ = std::make_unique<D3D12ImguiRenderer>(device_.get(),
-														   swapchain_->GetBackBufferFormat(),
-														   graphicsQueue_.get(),
-														   resourceDescriptorHeap_.get(),
-														   hwnd,
-														   framesInFlight_);
+														  swapchain_->GetBackBufferFormat(),
+														  graphicsQueue_.get(),
+														  resourceDescriptorHeap_.get(),
+														  hwnd,
+														  framesInFlight_);
 }
 
 void D3D12RenderContext::ImguiNewFrame()
@@ -248,20 +257,20 @@ void D3D12RenderContext::BeginRootParameterTracking(RootParameterTracker &tracke
 		tracker.requiredMask |= (1ull << rootSignature.rootConstantParameterIndex);
 	}
 #else
-	(void)tracker;
-	(void)rootSignature;
+	(void) tracker;
+	(void) rootSignature;
 #endif
 }
 
-void D3D12RenderContext::MarkRootParameterSet(const ReflectedRootSignature &rootSignature,
-											  uint32_t rootParameterIndex)
+void D3D12RenderContext::MarkRootParameterSet(const ReflectedRootSignature &rootSignature, uint32_t rootParameterIndex)
 {
 #ifndef NDEBUG
 	if (rootParameterIndex >= 64)
 	{
 		return;
 	}
-	for (RootParameterTracker *tracker: { &graphicsRootParameters_, &computeRootParameters_, &raytracingRootParameters_ })
+	for (RootParameterTracker *tracker:
+		 { &graphicsRootParameters_, &computeRootParameters_, &raytracingRootParameters_ })
 	{
 		if (tracker->rootSignature == &rootSignature)
 		{
@@ -270,8 +279,8 @@ void D3D12RenderContext::MarkRootParameterSet(const ReflectedRootSignature &root
 		}
 	}
 #else
-	(void)rootSignature;
-	(void)rootParameterIndex;
+	(void) rootSignature;
+	(void) rootParameterIndex;
 #endif
 }
 
@@ -329,7 +338,7 @@ void D3D12RenderContext::ValidateRootParameters(const char *callSite)
 		loge("{}: root constants (root parameter {}) were never set", callSite, rootConstantIndex);
 	}
 #else
-	(void)callSite;
+	(void) callSite;
 #endif
 }
 
@@ -670,8 +679,9 @@ void D3D12RenderContext::SetComputeConstantBufferByName(const std::string &name,
 			false);
 }
 
-ResourceHandle D3D12RenderContext::GetOrCreateScalarConstantBuffer(
-		const void *pipeline, const std::string &cbufferName, uint32_t sizeInBytes)
+ResourceHandle D3D12RenderContext::GetOrCreateScalarConstantBuffer(const void *pipeline,
+																   const std::string &cbufferName,
+																   uint32_t sizeInBytes)
 {
 	const ScalarCBKey key{ pipeline, cbufferName };
 	auto it = scalarConstantBuffers_.find(key);
@@ -693,8 +703,8 @@ void D3D12RenderContext::SetComputeScalarByName(const std::string &name, const v
 	}
 
 	const auto &scalars = currentComputePipeline_->GetReflectedRootSignature().scalars;
-	auto it = std::find_if(
-			scalars.begin(), scalars.end(), [&name](const ReflectedScalar &s) { return s.name == name; });
+	auto it =
+			std::find_if(scalars.begin(), scalars.end(), [&name](const ReflectedScalar &s) { return s.name == name; });
 	if (it == scalars.end())
 	{
 		throw std::runtime_error("SetComputeScalarByName: no reflected variable found with the given name.");
@@ -851,8 +861,8 @@ void D3D12RenderContext::SetRaytracingScalarByName(const std::string &name, cons
 	}
 
 	const auto &scalars = currentRaytracingPipeline_->GetReflectedRootSignature().scalars;
-	auto it = std::find_if(
-			scalars.begin(), scalars.end(), [&name](const ReflectedScalar &s) { return s.name == name; });
+	auto it =
+			std::find_if(scalars.begin(), scalars.end(), [&name](const ReflectedScalar &s) { return s.name == name; });
 	if (it == scalars.end())
 	{
 		throw std::runtime_error("SetRaytracingScalarByName: no reflected variable found with the given name.");
@@ -986,11 +996,11 @@ void D3D12RenderContext::ClearUAVBufferUint(ResourceHandle handle, uint32_t clea
 	auto &frameResources = perFrameResources_[currentFrameIndex_];
 	const uint32_t values[4] = { clearValue, clearValue, clearValue, clearValue };
 	frameResources.graphicsCommandList->ClearUnorderedAccessViewUint(resourceDescriptorHeap_.get(),
-																	  gpuClearHandle,
-																	  cpuOnlyDescriptorHeap_.get(),
-																	  gpuClearHandle,
-																	  entry.resourcePtr,
-																	  values);
+																	 gpuClearHandle,
+																	 cpuOnlyDescriptorHeap_.get(),
+																	 gpuClearHandle,
+																	 entry.resourcePtr,
+																	 values);
 }
 
 void D3D12RenderContext::SetViewport(const Viewport &viewport)
@@ -1025,7 +1035,8 @@ void D3D12RenderContext::SetGraphics32BitConstants(const void *data, uint32_t nu
 	{
 		throw std::runtime_error("SetGraphics32BitConstants: no graphics pipeline is currently bound.");
 	}
-	const uint32_t rootParameterIndex = currentGraphicsPipeline_->GetReflectedRootSignature().rootConstantParameterIndex;
+	const uint32_t rootParameterIndex =
+			currentGraphicsPipeline_->GetReflectedRootSignature().rootConstantParameterIndex;
 	if (rootParameterIndex == kNoRootConstantParameter)
 	{
 		throw std::runtime_error(
@@ -1511,8 +1522,9 @@ static D3D12_INDIRECT_ARGUMENT_TYPE TranslateIndirectCommandType(IndirectCommand
 	throw std::runtime_error("Invalid IndirectCommandType.");
 }
 
-CommandSignatureHandle D3D12RenderContext::CreateCommandSignature(
-		IndirectCommandType type, uint32_t rootConstantsSizeInBytes, PipelineHandle pipeline)
+CommandSignatureHandle D3D12RenderContext::CreateCommandSignature(IndirectCommandType type,
+																  uint32_t rootConstantsSizeInBytes,
+																  PipelineHandle pipeline)
 {
 	ID3D12RootSignature *rootSignature = nullptr;
 	if (rootConstantsSizeInBytes > 0)
@@ -1845,8 +1857,10 @@ ResourceViewInfo D3D12RenderContext::CreateTextureAlternateView(ResourceHandle e
 	return GetResourceViewInfo(handle);
 }
 
-ResourceViewInfo D3D12RenderContext::CreateTextureMipArrayUAV(
-		ResourceHandle existingTexture, Format format, uint32_t mipSlice, uint32_t arraySize)
+ResourceViewInfo D3D12RenderContext::CreateTextureMipArrayUAV(ResourceHandle existingTexture,
+															  Format format,
+															  uint32_t mipSlice,
+															  uint32_t arraySize)
 {
 	auto it = resources_.find(existingTexture);
 	if (it == resources_.end() || it->second.isBuffer)
@@ -1882,11 +1896,11 @@ ResourceViewInfo D3D12RenderContext::CreateBuffer(const BufferDesc &desc, Resour
 	return GetResourceViewInfo(handle);
 }
 
-std::vector<ResourceViewInfo> D3D12RenderContext::CreateBufferArray(
-		std::span<const BufferDesc> descs, ResourceViewType viewType)
+std::vector<ResourceViewInfo> D3D12RenderContext::CreateBufferArray(std::span<const BufferDesc> descs,
+																	ResourceViewType viewType)
 {
-	const uint32_t baseIndex = resourceDescriptorHeap_->AllocateContiguousDescriptors(
-			static_cast<uint32_t>(descs.size()));
+	const uint32_t baseIndex =
+			resourceDescriptorHeap_->AllocateContiguousDescriptors(static_cast<uint32_t>(descs.size()));
 
 	std::vector<ResourceViewInfo> views;
 	views.reserve(descs.size());
@@ -1907,8 +1921,10 @@ std::vector<ResourceViewInfo> D3D12RenderContext::CreateBufferArray(
 		resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 		resourceDesc.Flags = TranslateUsageFlags(desc.usageFlags);
 
-		std::unique_ptr<D3D12Buffer> buffer = device_->CreateBuffer(
-				resourceDesc, D3D12_HEAP_TYPE_DEFAULT, static_cast<D3D12_BARRIER_LAYOUT>(desc.initialLayout));
+		std::unique_ptr<D3D12Buffer> buffer =
+				device_->CreateBuffer(resourceDesc,
+									  D3D12_HEAP_TYPE_DEFAULT,
+									  static_cast<D3D12_BARRIER_LAYOUT>(desc.initialLayout));
 		if (!desc.debugName.empty())
 		{
 			buffer->SetName(desc.debugName);
@@ -2100,7 +2116,8 @@ ResourceViewInfo D3D12RenderContext::CreateTexture(const TextureDesc &desc,
 				for (uint32_t z = 0; z < mipDepth; ++z)
 				{
 					D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
-					footprint.Offset = mipOffsets[m] + static_cast<uint64_t>(z) * mipAlignedPitches[m] * mipData[m].rowCount;
+					footprint.Offset =
+							mipOffsets[m] + static_cast<uint64_t>(z) * mipAlignedPitches[m] * mipData[m].rowCount;
 					footprint.Footprint.Format = dxgiFormat;
 					footprint.Footprint.Width = mipWidth;
 					footprint.Footprint.Height = mipHeight;
@@ -2265,8 +2282,11 @@ void D3D12RenderContext::CopyBufferRegion(ResourceHandle dstHandle,
 	}
 
 	auto &frameResources = perFrameResources_[currentFrameIndex_];
-	frameResources.graphicsCommandList->CopyBufferRegion(
-			dstIt->second.resourcePtr, dstOffset, srcIt->second.resourcePtr, srcOffset, sizeInBytes);
+	frameResources.graphicsCommandList->CopyBufferRegion(dstIt->second.resourcePtr,
+														 dstOffset,
+														 srcIt->second.resourcePtr,
+														 srcOffset,
+														 sizeInBytes);
 }
 
 // std::unique_ptr<ITextureCompressor> D3D12RenderContext::CreateTextureCompressor()
@@ -2461,9 +2481,6 @@ void D3D12RenderContext::RegisterSwapchainBackBuffers()
 		entry.resourcePtr = backBuffer.get(); // non-owning: D3D12Swapchain retains ownership
 		entry.isBuffer = false;
 		entry.descriptorIndex = descriptorIndex;
-		// Backbuffers coming out of Present already have prior GPU access (unlike a
-		// freshly created resource), so SYNC_NONE/NO_ACCESS is not legal here - it
-		// would tell the validator to skip synchronizing against that prior access.
 		entry.currentLayout = ResourceLayout::Present;
 		entry.currentSync = ResourceSync::All;
 		entry.currentAccess = ResourceAccess::Common;

@@ -135,8 +135,9 @@ public:
 	void DestroyAccelerationStructure(AccelerationStructureHandle handle) override;
 	void UAVBarrierForAccelerationStructures() override;
 
-	CommandSignatureHandle CreateCommandSignature(
-			IndirectCommandType type, uint32_t rootConstantsSizeInBytes, PipelineHandle pipeline) override;
+	CommandSignatureHandle CreateCommandSignature(IndirectCommandType type,
+												  uint32_t rootConstantsSizeInBytes,
+												  PipelineHandle pipeline) override;
 	void ExecuteIndirect(CommandSignatureHandle signature,
 						 ResourceHandle argumentBuffer,
 						 uint64_t argumentBufferOffset,
@@ -148,13 +149,17 @@ public:
 	void ClearRenderTarget(Resource renderTarget, float clearColour[4]) override;
 	void ClearDepthStencil(Resource depthStencil, float depth = 1.0f, uint8_t stencil = 0) override;
 	void ClearUAVBufferUint(ResourceHandle handle, uint32_t clearValue = 0) override;
-	void SetRenderTargets(const Resource *renderTargets, uint numRenderTargets, Resource depthStencil = {}, bool readOnly = false) override;
+	void SetRenderTargets(const Resource *renderTargets,
+						  uint numRenderTargets,
+						  Resource depthStencil = {},
+						  bool readOnly = false) override;
 	void SetViewport(const Viewport &viewport) override;
 	void SetScissorRect(const ScissorRect &scissorRect) override;
 	void SetGraphics32BitConstants(const void *data, uint32_t num32BitValues) override;
 
 	PipelineHandle CreateGraphicsPipeline(const std::string &shaderPath,
-										  std::span<PipelineEntryPoint> entryPoints, const GraphicsPipelineCreateInfo &pipelineInfo) override;
+										  std::span<PipelineEntryPoint> entryPoints,
+										  const GraphicsPipelineCreateInfo &pipelineInfo) override;
 
 	ResourceViewInfo CreateTexture(const TextureDesc &desc, ResourceViewType viewType) override;
 	ResourceViewInfo CreateBuffer(const BufferDesc &desc, ResourceViewType viewType) override;
@@ -162,11 +167,13 @@ public:
 												Format format,
 												ResourceViewType viewType,
 												TextureDimension dimension = TextureDimension::Texture2D) override;
-	ResourceViewInfo CreateTextureMipArrayUAV(
-			ResourceHandle existingTexture, Format format, uint32_t mipSlice, uint32_t arraySize) override;
+	ResourceViewInfo CreateTextureMipArrayUAV(ResourceHandle existingTexture,
+											  Format format,
+											  uint32_t mipSlice,
+											  uint32_t arraySize) override;
 
-	std::vector<ResourceViewInfo> CreateBufferArray(
-			std::span<const BufferDesc> descs, ResourceViewType viewType) override;
+	std::vector<ResourceViewInfo> CreateBufferArray(std::span<const BufferDesc> descs,
+													ResourceViewType viewType) override;
 	void SetComputeUAVTableByName(const std::string &name, ResourceHandle firstInArray) override;
 	void SetComputeSRVTableByName(const std::string &name, ResourceHandle firstInArray) override;
 	void SetUAVTableByName(const std::string &name, ResourceHandle firstInArray) override;
@@ -231,8 +238,8 @@ private:
 
 	std::unique_ptr<D3D12Device> device_;
 	std::unique_ptr<D3D12CommandQueue> graphicsQueue_;
-	std::unique_ptr<D3D12CommandQueue> copyQueue_; // dedicated Copy-type queue for batch uploads (BeginUpload/EndUpload)
-	std::unique_ptr<D3D12CommandQueue> computeQueue_; // dedicated Compute-type queue (e.g. Scene's GPUEncoder)
+	std::unique_ptr<D3D12CommandQueue> copyQueue_;
+	std::unique_ptr<D3D12CommandQueue> computeQueue_;
 	std::unique_ptr<D3D12Swapchain> swapchain_;
 	std::unique_ptr<D3D12DescriptorHeap> resourceDescriptorHeap_;
 	std::unique_ptr<D3D12ImguiRenderer> imguiRenderer_;
@@ -303,7 +310,9 @@ private:
 		}
 	};
 	std::unordered_map<ScalarCBKey, ResourceHandle, ScalarCBKeyHash> scalarConstantBuffers_;
-	ResourceHandle GetOrCreateScalarConstantBuffer(const void *pipeline, const std::string &cbufferName, uint32_t sizeInBytes);
+	ResourceHandle GetOrCreateScalarConstantBuffer(const void *pipeline,
+												   const std::string &cbufferName,
+												   uint32_t sizeInBytes);
 
 	std::unordered_map<ShaderTableHandle, std::unique_ptr<D3D12ShaderTable>> shaderTables_;
 	ShaderTableHandle nextShaderTableHandle_ = 0;
