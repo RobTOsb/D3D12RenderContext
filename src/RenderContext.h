@@ -321,9 +321,11 @@ struct RaytracingPipelineDesc
 struct BLASGeometry
 {
 	ResourceHandle vertexBuffer = InvalidResourceHandle;
+	uint64_t vertexBufferOffset = 0; // bytes; lets several BLASes share one vertex buffer
 	uint32_t vertexCount = 0;
 	uint32_t vertexStride = 0; // typically sizeof(InterleavedVertex); only the leading float3 position is read
 	ResourceHandle indexBuffer = InvalidResourceHandle;
+	uint64_t indexBufferOffset = 0; // bytes, must be a multiple of 4 (R32_UINT indices)
 	uint32_t indexCount = 0;
 	bool isOpaque = true;
 };

@@ -1388,10 +1388,12 @@ AccelerationStructureHandle D3D12RenderContext::CreateBLAS(const BLASGeometry &g
 	}
 
 	BLASGeometryDesc nativeGeometry;
-	nativeGeometry.vertexBufferVA = vertexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress();
+	nativeGeometry.vertexBufferVA =
+			vertexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress() + geometry.vertexBufferOffset;
 	nativeGeometry.vertexCount = geometry.vertexCount;
 	nativeGeometry.vertexStride = geometry.vertexStride;
-	nativeGeometry.indexBufferVA = indexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress();
+	nativeGeometry.indexBufferVA =
+			indexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress() + geometry.indexBufferOffset;
 	nativeGeometry.indexCount = geometry.indexCount;
 	nativeGeometry.indexFormat = DXGI_FORMAT_R32_UINT;
 	nativeGeometry.isOpaque = geometry.isOpaque;
