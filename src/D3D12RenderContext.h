@@ -161,18 +161,18 @@ public:
 										  std::span<PipelineEntryPoint> entryPoints,
 										  const GraphicsPipelineCreateInfo &pipelineInfo) override;
 
-	ResourceViewInfo CreateTexture(const TextureDesc &desc, ResourceViewType viewType) override;
-	ResourceViewInfo CreateBuffer(const BufferDesc &desc, ResourceViewType viewType) override;
-	ResourceViewInfo CreateTextureAlternateView(ResourceHandle existingTexture,
+	ResourceHandle CreateTexture(const TextureDesc &desc, ResourceViewType viewType) override;
+	ResourceHandle CreateBuffer(const BufferDesc &desc, ResourceViewType viewType) override;
+	ResourceHandle CreateTextureAlternateView(ResourceHandle existingTexture,
 												Format format,
 												ResourceViewType viewType,
 												TextureDimension dimension = TextureDimension::Texture2D) override;
-	ResourceViewInfo CreateTextureMipArrayUAV(ResourceHandle existingTexture,
+	ResourceHandle CreateTextureMipArrayUAV(ResourceHandle existingTexture,
 											  Format format,
 											  uint32_t mipSlice,
 											  uint32_t arraySize) override;
 
-	std::vector<ResourceViewInfo> CreateBufferArray(std::span<const BufferDesc> descs,
+	std::vector<ResourceHandle> CreateBufferArray(std::span<const BufferDesc> descs,
 													ResourceViewType viewType) override;
 	void SetComputeUAVTableByName(const std::string &name, ResourceHandle firstInArray) override;
 	void SetComputeSRVTableByName(const std::string &name, ResourceHandle firstInArray) override;
@@ -180,19 +180,19 @@ public:
 
 	UploadBatchHandle BeginUpload() override;
 	void EndUpload(UploadBatchHandle batch) override;
-	ResourceViewInfo CreateBuffer(const BufferDesc &desc,
+	ResourceHandle CreateBuffer(const BufferDesc &desc,
 								  ResourceViewType viewType,
 								  const void *initialData,
 								  UploadBatchHandle batch) override;
-	ResourceViewInfo CreateTexture(const TextureDesc &desc,
+	ResourceHandle CreateTexture(const TextureDesc &desc,
 								   ResourceViewType viewType,
 								   std::span<const TextureMipData> mipData,
 								   UploadBatchHandle batch) override;
 
-	ResourceViewInfo CreateConstantBuffer(uint64_t sizeInBytes, const std::string &debugName = {}) override;
+	ResourceHandle CreateConstantBuffer(uint64_t sizeInBytes, const std::string &debugName = {}) override;
 	void UpdateConstantBuffer(ResourceHandle handle, const void *data, uint64_t sizeInBytes) override;
 
-	ResourceViewInfo CreateUploadBuffer(const BufferDesc &desc,
+	ResourceHandle CreateUploadBuffer(const BufferDesc &desc,
 										ResourceViewType viewType,
 										const void *initialData = nullptr) override;
 	void UpdateUploadBuffer(ResourceHandle handle, const void *data, uint64_t offset, uint64_t sizeInBytes) override;

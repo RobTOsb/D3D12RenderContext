@@ -480,12 +480,12 @@ public:
 												  std::span<PipelineEntryPoint> entryPoints,
 												  const GraphicsPipelineCreateInfo &pipelineInfo) = 0;
 
-	virtual ResourceViewInfo CreateTexture(const TextureDesc &desc, ResourceViewType viewType) = 0;
-	virtual ResourceViewInfo CreateBuffer(const BufferDesc &desc, ResourceViewType viewType) = 0;
+	virtual ResourceHandle CreateTexture(const TextureDesc &desc, ResourceViewType viewType) = 0;
+	virtual ResourceHandle CreateBuffer(const BufferDesc &desc, ResourceViewType viewType) = 0;
 
 	// Second bindless view (non-owning) over an existing texture, e.g. UAV bake -> SRV sample.
 	// CAUTION: the two handles track resource-state independently; only transition one of them.
-	virtual ResourceViewInfo CreateTextureAlternateView(ResourceHandle existingTexture,
+	virtual ResourceHandle CreateTextureAlternateView(ResourceHandle existingTexture,
 														Format format,
 														ResourceViewType viewType,
 														TextureDimension dimension = TextureDimension::Texture2D) = 0;
@@ -493,10 +493,10 @@ public:
 	// Non-owning UAV over a single mip of a texture, covering every array slice: a cube map's six
 	// faces are viewed as a Texture2DArray so one dispatch can write a whole mip level.
 	// CAUTION: shares the resource-state caveat above - only transition the owning handle.
-	virtual ResourceViewInfo CreateTextureMipArrayUAV(
+	virtual ResourceHandle CreateTextureMipArrayUAV(
 			ResourceHandle existingTexture, Format format, uint32_t mipSlice, uint32_t arraySize) = 0;
 
-	virtual std::vector<ResourceViewInfo> CreateBufferArray(
+	virtual std::vector<ResourceHandle> CreateBufferArray(
 			std::span<const BufferDesc> descs, ResourceViewType viewType) = 0;
 
 	virtual void SetComputeUAVTableByName(const std::string &name, ResourceHandle firstInArray) = 0;
@@ -506,19 +506,19 @@ public:
 	virtual UploadBatchHandle BeginUpload() = 0;
 	virtual void EndUpload(UploadBatchHandle batch) = 0;
 
-	virtual ResourceViewInfo CreateBuffer(const BufferDesc &desc,
+	virtual ResourceHandle CreateBuffer(const BufferDesc &desc,
 										  ResourceViewType viewType,
 										  const void *initialData,
 										  UploadBatchHandle batch) = 0;
-	virtual ResourceViewInfo CreateTexture(const TextureDesc &desc,
+	virtual ResourceHandle CreateTexture(const TextureDesc &desc,
 										   ResourceViewType viewType,
 										   std::span<const TextureMipData> mipData,
 										   UploadBatchHandle batch) = 0;
 
-	virtual ResourceViewInfo CreateConstantBuffer(uint64_t sizeInBytes, const std::string &debugName = {}) = 0;
+	virtual ResourceHandle CreateConstantBuffer(uint64_t sizeInBytes, const std::string &debugName = {}) = 0;
 	virtual void UpdateConstantBuffer(ResourceHandle handle, const void *data, uint64_t sizeInBytes) = 0;
 
-	virtual ResourceViewInfo CreateUploadBuffer(const BufferDesc &desc,
+	virtual ResourceHandle CreateUploadBuffer(const BufferDesc &desc,
 												ResourceViewType viewType,
 												const void *initialData = nullptr) = 0;
 

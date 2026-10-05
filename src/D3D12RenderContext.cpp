@@ -690,9 +690,9 @@ ResourceHandle D3D12RenderContext::GetOrCreateScalarConstantBuffer(const void *p
 		return it->second;
 	}
 
-	const ResourceViewInfo info = CreateConstantBuffer(sizeInBytes, "ScalarCB_" + cbufferName);
-	scalarConstantBuffers_.emplace(key, info.handle);
-	return info.handle;
+	const ResourceHandle handle = CreateConstantBuffer(sizeInBytes, "ScalarCB_" + cbufferName);
+	scalarConstantBuffers_.emplace(key, handle);
+	return handle;
 }
 
 void D3D12RenderContext::SetComputeScalarByName(const std::string &name, const void *data, uint32_t sizeInBytes)
@@ -1826,14 +1826,14 @@ ResourceHandle D3D12RenderContext::CreateBufferResourceAndView(const BufferDesc 
 	return handle;
 }
 
-ResourceViewInfo D3D12RenderContext::CreateTexture(const TextureDesc &desc, ResourceViewType viewType)
+ResourceHandle D3D12RenderContext::CreateTexture(const TextureDesc &desc, ResourceViewType viewType)
 {
 	D3D12Texture *texture = nullptr;
 	const ResourceHandle handle = CreateTextureResourceAndView(desc, viewType, &texture);
-	return GetResourceViewInfo(handle);
+	return handle;
 }
 
-ResourceViewInfo D3D12RenderContext::CreateTextureAlternateView(ResourceHandle existingTexture,
+ResourceHandle D3D12RenderContext::CreateTextureAlternateView(ResourceHandle existingTexture,
 																Format format,
 																ResourceViewType viewType,
 																TextureDimension dimension)
@@ -1856,10 +1856,10 @@ ResourceViewInfo D3D12RenderContext::CreateTextureAlternateView(ResourceHandle e
 	entry.currentSync = ResourceSync::None;
 	entry.currentAccess = ResourceAccess::NoAccess;
 
-	return GetResourceViewInfo(handle);
+	return handle;
 }
 
-ResourceViewInfo D3D12RenderContext::CreateTextureMipArrayUAV(ResourceHandle existingTexture,
+ResourceHandle D3D12RenderContext::CreateTextureMipArrayUAV(ResourceHandle existingTexture,
 															  Format format,
 															  uint32_t mipSlice,
 															  uint32_t arraySize)
@@ -1888,23 +1888,23 @@ ResourceViewInfo D3D12RenderContext::CreateTextureMipArrayUAV(ResourceHandle exi
 	entry.currentSync = ResourceSync::None;
 	entry.currentAccess = ResourceAccess::NoAccess;
 
-	return GetResourceViewInfo(handle);
+	return handle;
 }
 
-ResourceViewInfo D3D12RenderContext::CreateBuffer(const BufferDesc &desc, ResourceViewType viewType)
+ResourceHandle D3D12RenderContext::CreateBuffer(const BufferDesc &desc, ResourceViewType viewType)
 {
 	D3D12Buffer *buffer = nullptr;
 	const ResourceHandle handle = CreateBufferResourceAndView(desc, viewType, &buffer);
-	return GetResourceViewInfo(handle);
+	return handle;
 }
 
-std::vector<ResourceViewInfo> D3D12RenderContext::CreateBufferArray(std::span<const BufferDesc> descs,
+std::vector<ResourceHandle> D3D12RenderContext::CreateBufferArray(std::span<const BufferDesc> descs,
 																	ResourceViewType viewType)
 {
 	const uint32_t baseIndex =
 			resourceDescriptorHeap_->AllocateContiguousDescriptors(static_cast<uint32_t>(descs.size()));
 
-	std::vector<ResourceViewInfo> views;
+	std::vector<ResourceHandle> views;
 	views.reserve(descs.size());
 
 	for (size_t i = 0; i < descs.size(); ++i)
@@ -1963,7 +1963,7 @@ std::vector<ResourceViewInfo> D3D12RenderContext::CreateBufferArray(std::span<co
 		entry.currentSync = ResourceSync::None;
 		entry.currentAccess = ResourceAccess::NoAccess;
 
-		views.push_back(GetResourceViewInfo(handle));
+		views.push_back(handle);
 	}
 
 	return views;
@@ -1987,7 +1987,7 @@ UploadBatchHandle D3D12RenderContext::BeginUpload()
 	return handle;
 }
 
-ResourceViewInfo D3D12RenderContext::CreateBuffer(const BufferDesc &desc,
+ResourceHandle D3D12RenderContext::CreateBuffer(const BufferDesc &desc,
 												  ResourceViewType viewType,
 												  const void *initialData,
 												  UploadBatchHandle batch)
@@ -2026,10 +2026,10 @@ ResourceViewInfo D3D12RenderContext::CreateBuffer(const BufferDesc &desc,
 		batchEntry.stagingBuffers.push_back(std::move(staging));
 	}
 
-	return GetResourceViewInfo(handle);
+	return handle;
 }
 
-ResourceViewInfo D3D12RenderContext::CreateTexture(const TextureDesc &desc,
+ResourceHandle D3D12RenderContext::CreateTexture(const TextureDesc &desc,
 												   ResourceViewType viewType,
 												   std::span<const TextureMipData> mipData,
 												   UploadBatchHandle batch)
@@ -2163,7 +2163,7 @@ ResourceViewInfo D3D12RenderContext::CreateTexture(const TextureDesc &desc,
 		trackedEntry.currentAccess = ResourceAccess::CopyDest;
 	}
 
-	return GetResourceViewInfo(handle);
+	return handle;
 }
 
 void D3D12RenderContext::EndUpload(UploadBatchHandle batch)
@@ -2187,7 +2187,7 @@ void D3D12RenderContext::EndUpload(UploadBatchHandle batch)
 	uploadBatches_.erase(batchIt);
 }
 
-ResourceViewInfo D3D12RenderContext::CreateUploadBuffer(const BufferDesc &desc,
+ResourceHandle D3D12RenderContext::CreateUploadBuffer(const BufferDesc &desc,
 														ResourceViewType viewType,
 														const void *initialData)
 {
@@ -2235,7 +2235,7 @@ ResourceViewInfo D3D12RenderContext::CreateUploadBuffer(const BufferDesc &desc,
 	entry.currentSync = ResourceSync::None;
 	entry.currentAccess = ResourceAccess::NoAccess;
 
-	return GetResourceViewInfo(handle);
+	return handle;
 }
 
 void D3D12RenderContext::UpdateUploadBuffer(ResourceHandle handle,
@@ -2302,7 +2302,7 @@ std::unique_ptr<ITextureCompressor> D3D12RenderContext::CreateTextureCompressor(
 	return nullptr;
 }
 
-ResourceViewInfo D3D12RenderContext::CreateConstantBuffer(uint64_t sizeInBytes, const std::string &debugName)
+ResourceHandle D3D12RenderContext::CreateConstantBuffer(uint64_t sizeInBytes, const std::string &debugName)
 {
 	const uint64_t alignedSize = (sizeInBytes + 255) & ~255ull;
 
@@ -2344,7 +2344,7 @@ ResourceViewInfo D3D12RenderContext::CreateConstantBuffer(uint64_t sizeInBytes, 
 	entry.currentSync = ResourceSync::None;
 	entry.currentAccess = ResourceAccess::NoAccess;
 
-	return GetResourceViewInfo(handle);
+	return handle;
 }
 
 void D3D12RenderContext::UpdateConstantBuffer(ResourceHandle handle, const void *data, uint64_t sizeInBytes)
