@@ -1638,6 +1638,152 @@ static D3D12_RESOURCE_FLAGS TranslateUsageFlags(ResourceUsageFlags usageFlags)
 	return flags;
 }
 
+DescriptorHandle D3D12RenderContext::CreateTextureViewDescriptor(D3D12Resource *resource, const TextureViewDesc &desc)
+{
+	const D3D12_RESOURCE_DESC resourceDesc = resource->GetResource()->GetDesc();
+	const DXGI_FORMAT format =
+			desc.format == Format::Unknown ? resourceDesc.Format : static_cast<DXGI_FORMAT>(desc.format);
+
+	const bool isCube = desc.dimension == TextureDimension::TextureCube;
+	const bool is3D = desc.dimension == TextureDimension::Texture3D;
+	const bool is1D = desc.dimension == TextureDimension::Texture1D;
+
+	const uint32_t mipLevels = resourceDesc.MipLevels;
+	if (desc.baseMip >= mipLevels)
+	{
+		throw std::runtime_error("CreateTextureView: baseMip is out of range.");
+	}
+	const uint32_t remainingMips = mipLevels - desc.baseMip;
+	const uint32_t mipCount = desc.mipCount == 0 ? remainingMips : desc.mipCount;
+
+	// Slices of a 3D texture are depth slices; for everything else they are array slices.
+	const uint32_t totalSlices = resourceDesc.DepthOrArraySize;
+	if (desc.firstSlice >= totalSlices)
+	{
+		throw std::runtime_error("CreateTextureView: firstSlice is out of range.");
+	}
+	const uint32_t sliceCount = desc.sliceCount == 0 ? totalSlices - desc.firstSlice : desc.sliceCount;
+	if (mipCount > remainingMips || desc.firstSlice + sliceCount > totalSlices)
+	{
+		throw std::runtime_error("CreateTextureView: mip or slice range exceeds the resource.");
+	}
+
+	switch (desc.viewType)
+	{
+		case ResourceViewType::ShaderResource:
+		{
+			D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+			srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+			// A typeless resource (e.g. a depth-stencil texture also sampled as a colour
+			// texture) has no valid SRV format of its own; view it through its typed
+			// equivalent instead.
+			srvDesc.Format = format == DXGI_FORMAT_R32_TYPELESS ? DXGI_FORMAT_R32_FLOAT : format;
+			if (isCube)
+			{
+				srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+				srvDesc.TextureCube.MostDetailedMip = desc.baseMip;
+				srvDesc.TextureCube.MipLevels = mipCount;
+				if (desc.firstSlice != 0)
+				{
+					// A cube SRV over a later face group needs the array form.
+					if (desc.firstSlice % kCubeFaceCount != 0)
+					{
+						throw std::runtime_error("CreateTextureView: cube firstSlice must be a multiple of 6.");
+					}
+					srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBEARRAY;
+					srvDesc.TextureCubeArray.MostDetailedMip = desc.baseMip;
+					srvDesc.TextureCubeArray.MipLevels = mipCount;
+					srvDesc.TextureCubeArray.First2DArrayFace = desc.firstSlice;
+					srvDesc.TextureCubeArray.NumCubes = 1;
+				}
+			}
+			else if (is3D)
+			{
+				srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+				srvDesc.Texture3D.MostDetailedMip = desc.baseMip;
+				srvDesc.Texture3D.MipLevels = mipCount;
+			}
+			else if (is1D)
+			{
+				if (desc.asArray)
+				{
+					srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1DARRAY;
+					srvDesc.Texture1DArray.MostDetailedMip = desc.baseMip;
+					srvDesc.Texture1DArray.MipLevels = mipCount;
+					srvDesc.Texture1DArray.FirstArraySlice = desc.firstSlice;
+					srvDesc.Texture1DArray.ArraySize = sliceCount;
+				}
+				else
+				{
+					srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1D;
+					srvDesc.Texture1D.MostDetailedMip = desc.baseMip;
+					srvDesc.Texture1D.MipLevels = mipCount;
+				}
+			}
+			else if (desc.asArray)
+			{
+				srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+				srvDesc.Texture2DArray.MostDetailedMip = desc.baseMip;
+				srvDesc.Texture2DArray.MipLevels = mipCount;
+				srvDesc.Texture2DArray.FirstArraySlice = desc.firstSlice;
+				srvDesc.Texture2DArray.ArraySize = sliceCount;
+			}
+			else
+			{
+				srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+				srvDesc.Texture2D.MostDetailedMip = desc.baseMip;
+				srvDesc.Texture2D.MipLevels = mipCount;
+			}
+			return resourceDescriptorHeap_->CreateSRV(resource, srvDesc);
+		}
+		case ResourceViewType::UnorderedAccess:
+		{
+			D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+			uavDesc.Format = format;
+			if (isCube || (!is3D && !is1D && desc.asArray))
+			{
+				// A cube has no UAV dimension of its own; its faces are written as an array.
+				uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+				uavDesc.Texture2DArray.MipSlice = desc.baseMip;
+				uavDesc.Texture2DArray.FirstArraySlice = desc.firstSlice;
+				uavDesc.Texture2DArray.ArraySize = sliceCount;
+			}
+			else if (is3D)
+			{
+				uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+				uavDesc.Texture3D.MipSlice = desc.baseMip;
+				uavDesc.Texture3D.FirstWSlice = desc.firstSlice;
+				uavDesc.Texture3D.WSize = sliceCount;
+			}
+			else if (is1D)
+			{
+				if (desc.asArray)
+				{
+					uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1DARRAY;
+					uavDesc.Texture1DArray.MipSlice = desc.baseMip;
+					uavDesc.Texture1DArray.FirstArraySlice = desc.firstSlice;
+					uavDesc.Texture1DArray.ArraySize = sliceCount;
+				}
+				else
+				{
+					uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1D;
+					uavDesc.Texture1D.MipSlice = desc.baseMip;
+				}
+			}
+			else
+			{
+				uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+				uavDesc.Texture2D.MipSlice = desc.baseMip;
+			}
+			return resourceDescriptorHeap_->CreateUAV(resource, uavDesc);
+		}
+		case ResourceViewType::ConstantBuffer:
+			throw std::runtime_error("CreateTextureView: ConstantBuffer views are not supported for textures.");
+	}
+
+	throw std::runtime_error("Invalid ResourceViewType.");
+}
+
 DescriptorHandle D3D12RenderContext::CreateViewForResource(D3D12Resource *resource,
 														   Format format,
 														   ResourceViewType viewType,
@@ -1646,8 +1792,14 @@ DescriptorHandle D3D12RenderContext::CreateViewForResource(D3D12Resource *resour
 														   uint32_t bufferStructureByteStride,
 														   TextureDimension dimension)
 {
-	const bool isCube = !isBuffer && dimension == TextureDimension::TextureCube;
-	const bool is3D = !isBuffer && dimension == TextureDimension::Texture3D;
+	if (!isBuffer)
+	{
+		TextureViewDesc desc;
+		desc.format = format;
+		desc.viewType = viewType;
+		desc.dimension = dimension;
+		return CreateTextureViewDescriptor(resource, desc);
+	}
 
 	switch (viewType)
 	{
@@ -1655,79 +1807,25 @@ DescriptorHandle D3D12RenderContext::CreateViewForResource(D3D12Resource *resour
 		{
 			D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 			srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-			if (isBuffer)
-			{
-				srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-				srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-				const uint32_t stride = bufferStructureByteStride != 0 ? bufferStructureByteStride : 4;
-				srvDesc.Buffer.NumElements = static_cast<UINT>(bufferSizeInBytes / stride);
-				srvDesc.Buffer.StructureByteStride = bufferStructureByteStride;
-			}
-			else
-			{
-				// A typeless resource (e.g. a depth-stencil texture also sampled as a colour
-				// texture) has no valid SRV format of its own; view it through its typed
-				// equivalent instead.
-				const DXGI_FORMAT resourceFormat = static_cast<DXGI_FORMAT>(format);
-				srvDesc.Format = resourceFormat == DXGI_FORMAT_R32_TYPELESS ? DXGI_FORMAT_R32_FLOAT : resourceFormat;
-				if (isCube)
-				{
-					srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
-					srvDesc.TextureCube.MipLevels = static_cast<UINT>(-1);
-				}
-				else if (is3D)
-				{
-					srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
-					srvDesc.Texture3D.MipLevels = static_cast<UINT>(-1);
-				}
-				else
-				{
-					srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-					srvDesc.Texture2D.MipLevels = static_cast<UINT>(-1);
-				}
-			}
+			srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+			const uint32_t stride = bufferStructureByteStride != 0 ? bufferStructureByteStride : 4;
+			srvDesc.Buffer.NumElements = static_cast<UINT>(bufferSizeInBytes / stride);
+			srvDesc.Buffer.StructureByteStride = bufferStructureByteStride;
 			return resourceDescriptorHeap_->CreateSRV(resource, srvDesc);
 		}
 		case ResourceViewType::UnorderedAccess:
 		{
 			D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-			if (isBuffer)
-			{
-				uavDesc.Format = DXGI_FORMAT_UNKNOWN;
-				uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-				const uint32_t stride = bufferStructureByteStride != 0 ? bufferStructureByteStride : 4;
-				uavDesc.Buffer.NumElements = static_cast<UINT>(bufferSizeInBytes / stride);
-				uavDesc.Buffer.StructureByteStride = bufferStructureByteStride;
-			}
-			else
-			{
-				uavDesc.Format = static_cast<DXGI_FORMAT>(format);
-				if (isCube)
-				{
-					// A cube has no UAV dimension of its own; its faces are written as an array.
-					uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
-					uavDesc.Texture2DArray.ArraySize = kCubeFaceCount;
-				}
-				else if (is3D)
-				{
-					// WSize must cover every slice, taken from the resource so it cannot drift.
-					uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
-					uavDesc.Texture3D.FirstWSlice = 0;
-					uavDesc.Texture3D.WSize = resource->GetResource()->GetDesc().DepthOrArraySize;
-				}
-				else
-				{
-					uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-				}
-			}
+			uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+			uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+			const uint32_t stride = bufferStructureByteStride != 0 ? bufferStructureByteStride : 4;
+			uavDesc.Buffer.NumElements = static_cast<UINT>(bufferSizeInBytes / stride);
+			uavDesc.Buffer.StructureByteStride = bufferStructureByteStride;
 			return resourceDescriptorHeap_->CreateUAV(resource, uavDesc);
 		}
 		case ResourceViewType::ConstantBuffer:
 		{
-			if (!isBuffer)
-			{
-				throw std::runtime_error("CreateTexture: ConstantBuffer views are not supported for textures.");
-			}
 			D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
 			cbvDesc.BufferLocation = resource->GetResource()->GetGPUVirtualAddress();
 			cbvDesc.SizeInBytes = static_cast<UINT>((bufferSizeInBytes + 255) & ~255ull);
@@ -1833,51 +1931,15 @@ ResourceHandle D3D12RenderContext::CreateTexture(const TextureDesc &desc, Resour
 	return handle;
 }
 
-ResourceHandle D3D12RenderContext::CreateTextureAlternateView(ResourceHandle existingTexture,
-																Format format,
-																ResourceViewType viewType,
-																TextureDimension dimension)
+ResourceHandle D3D12RenderContext::CreateTextureView(ResourceHandle existingTexture, const TextureViewDesc &desc)
 {
 	auto it = resources_.find(existingTexture);
 	if (it == resources_.end() || it->second.isBuffer)
 	{
-		throw std::runtime_error("CreateTextureAlternateView: invalid or non-texture resource handle.");
+		throw std::runtime_error("CreateTextureView: invalid or non-texture resource handle.");
 	}
 
-	const DescriptorHandle descriptorIndex =
-			CreateViewForResource(it->second.resourcePtr, format, viewType, false, 0, 0, dimension);
-
-	const ResourceHandle handle = nextResourceHandle_++;
-	ResourceEntry &entry = resources_[handle];
-	entry.resourcePtr = it->second.resourcePtr; // non-owning: ownedResource stays null
-	entry.isBuffer = false;
-	entry.descriptorIndex = descriptorIndex;
-	entry.currentLayout = ResourceLayout::Undefined;
-	entry.currentSync = ResourceSync::None;
-	entry.currentAccess = ResourceAccess::NoAccess;
-
-	return handle;
-}
-
-ResourceHandle D3D12RenderContext::CreateTextureMipArrayUAV(ResourceHandle existingTexture,
-															  Format format,
-															  uint32_t mipSlice,
-															  uint32_t arraySize)
-{
-	auto it = resources_.find(existingTexture);
-	if (it == resources_.end() || it->second.isBuffer)
-	{
-		throw std::runtime_error("CreateTextureMipArrayUAV: invalid or non-texture resource handle.");
-	}
-
-	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-	uavDesc.Format = static_cast<DXGI_FORMAT>(format);
-	uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
-	uavDesc.Texture2DArray.MipSlice = mipSlice;
-	uavDesc.Texture2DArray.FirstArraySlice = 0;
-	uavDesc.Texture2DArray.ArraySize = arraySize;
-
-	const DescriptorHandle descriptorIndex = resourceDescriptorHeap_->CreateUAV(it->second.resourcePtr, uavDesc);
+	const DescriptorHandle descriptorIndex = CreateTextureViewDescriptor(it->second.resourcePtr, desc);
 
 	const ResourceHandle handle = nextResourceHandle_++;
 	ResourceEntry &entry = resources_[handle];

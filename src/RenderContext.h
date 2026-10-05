@@ -1,10 +1,10 @@
 #pragma once
 
-#include "Typedefs.h"
 #include <memory>
 #include <span>
 #include <string>
 #include <vector>
+#include "Typedefs.h"
 
 #include "D3D12GPUProfiler.h"
 #include "D3D12Pipeline.h"
@@ -201,8 +201,19 @@ enum class TextureDimension
 	TextureCube
 };
 
-// A cube map is a six-slice 2D array; TextureDesc::depthOrArraySize is ignored for TextureCube.
 inline constexpr uint32_t kCubeFaceCount = 6;
+
+struct TextureViewDesc
+{
+	Format format = Format::Unknown; // Unknown = the resource's own format
+	ResourceViewType viewType = ResourceViewType::ShaderResource; // SRV or UAV
+	TextureDimension dimension = TextureDimension::Texture2D;
+	bool asArray = false; // Texture1D/Texture2D only: view as an array instead of a single slice
+	uint32_t baseMip = 0; // SRV: most detailed mip. UAV: the mip slice
+	uint32_t mipCount = 0; // SRV only (a UAV always covers exactly one mip). 0 = all from baseMip
+	uint32_t firstSlice = 0; // First array slice; first W slice for a 3D texture; first face (multiple of 6) for a cube SRV
+	uint32_t sliceCount = 0; // Slices covered. 0 = all from firstSlice. Ignored for non-array views and cube SRVs
+};
 
 enum class ResourceUsageFlags : uint32_t
 {
@@ -241,7 +252,7 @@ struct BufferDesc
 
 static constexpr uint32_t InvalidResourceDescriptorIndex = UINT32_MAX;
 
-struct  ResourceViewInfo
+struct ResourceViewInfo
 {
 	ResourceHandle handle = InvalidResourceHandle;
 	DescriptorHandle descriptorIndex = InvalidDescriptorHandle; // raw bindless descriptor-heap slot index
@@ -315,7 +326,8 @@ struct RaytracingPipelineDesc
 	uint32_t maxPayloadSizeInBytes = 0;
 	uint32_t maxAttributeSizeInBytes = 8;
 	uint32_t maxTraceRecursionDepth = 1;
-	std::vector<std::string> defines; // Slang preprocessor defines ("NAME" or "NAME=VALUE"); use them for shader permutations
+	std::vector<std::string>
+			defines; // Slang preprocessor defines ("NAME" or "NAME=VALUE"); use them for shader permutations
 };
 
 struct BLASGeometry
@@ -355,7 +367,9 @@ public:
 
 	virtual bool IsReady() const = 0;
 
-	virtual HRESULT Compress(const DirectX::ScratchImage &srcChain, DXGI_FORMAT bcFormat, DirectX::ScratchImage &result) = 0;
+	virtual HRESULT Compress(const DirectX::ScratchImage &srcChain,
+							 DXGI_FORMAT bcFormat,
+							 DirectX::ScratchImage &result) = 0;
 };
 
 class RenderContext
@@ -446,8 +460,9 @@ public:
 	virtual void UAVBarrierForAccelerationStructures() = 0;
 
 	// pipeline supplies the root signature for root-constants > 0; ignored otherwise (pass InvalidPipelineHandle).
-	virtual CommandSignatureHandle CreateCommandSignature(
-			IndirectCommandType type, uint32_t rootConstantsSizeInBytes, PipelineHandle pipeline) = 0;
+	virtual CommandSignatureHandle CreateCommandSignature(IndirectCommandType type,
+														  uint32_t rootConstantsSizeInBytes,
+														  PipelineHandle pipeline) = 0;
 	virtual void ExecuteIndirect(CommandSignatureHandle signature,
 								 ResourceHandle argumentBuffer,
 								 uint64_t argumentBufferOffset,
@@ -477,21 +492,14 @@ public:
 	virtual ResourceHandle CreateTexture(const TextureDesc &desc, ResourceViewType viewType) = 0;
 	virtual ResourceHandle CreateBuffer(const BufferDesc &desc, ResourceViewType viewType) = 0;
 
-	// Second bindless view (non-owning) over an existing texture, e.g. UAV bake -> SRV sample.
-	// CAUTION: the two handles track resource-state independently; only transition one of them.
-	virtual ResourceHandle CreateTextureAlternateView(ResourceHandle existingTexture,
-														Format format,
-														ResourceViewType viewType,
-														TextureDimension dimension = TextureDimension::Texture2D) = 0;
+	// Additional bindless view (non-owning) over an existing texture, e.g. UAV bake -> SRV sample, or a
+	// UAV over one mip of a cube map (dimension = TextureCube: all six faces as a 2D array).
+	// CAUTION: the handles track resource-state independently; only transition the owning handle,
+	// and destroy views before the owner.
+	virtual ResourceHandle CreateTextureView(ResourceHandle existingTexture, const TextureViewDesc &desc) = 0;
 
-	// Non-owning UAV over a single mip of a texture, covering every array slice: a cube map's six
-	// faces are viewed as a Texture2DArray so one dispatch can write a whole mip level.
-	// CAUTION: shares the resource-state caveat above, only transition the owning handle.
-	virtual ResourceHandle CreateTextureMipArrayUAV(
-			ResourceHandle existingTexture, Format format, uint32_t mipSlice, uint32_t arraySize) = 0;
-
-	virtual std::vector<ResourceHandle> CreateBufferArray(
-			std::span<const BufferDesc> descs, ResourceViewType viewType) = 0;
+	virtual std::vector<ResourceHandle> CreateBufferArray(std::span<const BufferDesc> descs,
+														  ResourceViewType viewType) = 0;
 
 	virtual void SetComputeUAVTableByName(const std::string &name, ResourceHandle firstInArray) = 0;
 	virtual void SetComputeSRVTableByName(const std::string &name, ResourceHandle firstInArray) = 0;
@@ -501,25 +509,22 @@ public:
 	virtual void EndUpload(UploadBatchHandle batch) = 0;
 
 	virtual ResourceHandle CreateBuffer(const BufferDesc &desc,
-										  ResourceViewType viewType,
-										  const void *initialData,
-										  UploadBatchHandle batch) = 0;
+										ResourceViewType viewType,
+										const void *initialData,
+										UploadBatchHandle batch) = 0;
 	virtual ResourceHandle CreateTexture(const TextureDesc &desc,
-										   ResourceViewType viewType,
-										   std::span<const TextureMipData> mipData,
-										   UploadBatchHandle batch) = 0;
+										 ResourceViewType viewType,
+										 std::span<const TextureMipData> mipData,
+										 UploadBatchHandle batch) = 0;
 
 	virtual ResourceHandle CreateConstantBuffer(uint64_t sizeInBytes, const std::string &debugName = {}) = 0;
 	virtual void UpdateConstantBuffer(ResourceHandle handle, const void *data, uint64_t sizeInBytes) = 0;
 
 	virtual ResourceHandle CreateUploadBuffer(const BufferDesc &desc,
-												ResourceViewType viewType,
-												const void *initialData = nullptr) = 0;
+											  ResourceViewType viewType,
+											  const void *initialData = nullptr) = 0;
 
-	virtual void UpdateUploadBuffer(ResourceHandle handle,
-									const void *data,
-									uint64_t offset,
-									uint64_t sizeInBytes) = 0;
+	virtual void UpdateUploadBuffer(ResourceHandle handle, const void *data, uint64_t offset, uint64_t sizeInBytes) = 0;
 
 	virtual void CopyTexture(ResourceHandle dstHandle, ResourceHandle srcHandle) = 0;
 
@@ -529,7 +534,7 @@ public:
 								  uint64_t srcOffset,
 								  uint64_t sizeInBytes) = 0;
 
-    virtual void SetGraphics32BitConstants(const void *data, uint32_t num32BitValues) = 0;
+	virtual void SetGraphics32BitConstants(const void *data, uint32_t num32BitValues) = 0;
 	virtual ResourceViewInfo GetResourceViewInfo(ResourceHandle handle) const = 0;
 	virtual Resource GetResource(ResourceHandle handle) const = 0;
 	virtual void TransitionResource(ResourceHandle handle,
@@ -564,47 +569,47 @@ public:
 		return currentFrame_;
 	}
 
-    // Output/swapchain resolution - fixed for the life of the window.
-    uint GetWindowWidth() const
-    {
-        return windowWidth_;
-    }
+	// Output/swapchain resolution - fixed for the life of the window.
+	uint GetWindowWidth() const
+	{
+		return windowWidth_;
+	}
 
-    uint GetWindowHeight() const
-    {
-        return windowHeight_;
-    }
+	uint GetWindowHeight() const
+	{
+		return windowHeight_;
+	}
 
-    uint GetRenderWidth() const
-    {
-        return renderWidth_ == 0 ? windowWidth_ : renderWidth_;
-    }
+	uint GetRenderWidth() const
+	{
+		return renderWidth_ == 0 ? windowWidth_ : renderWidth_;
+	}
 
-    uint GetRenderHeight() const
-    {
-        return renderHeight_ == 0 ? windowHeight_ : renderHeight_;
-    }
+	uint GetRenderHeight() const
+	{
+		return renderHeight_ == 0 ? windowHeight_ : renderHeight_;
+	}
 
-    void SetRenderResolution(uint width, uint height)
-    {
-        renderWidth_ = width;
-        renderHeight_ = height;
-    }
+	void SetRenderResolution(uint width, uint height)
+	{
+		renderWidth_ = width;
+		renderHeight_ = height;
+	}
 
-    bool GetUseHDR() const
-    {
-        return useHDR_;
-    }
+	bool GetUseHDR() const
+	{
+		return useHDR_;
+	}
 
 protected:
 	uint currentFrame_ = 0;
 	uint currentFrameIndex_ = 0;
 	uint framesInFlight_ = 0;
-    uint windowWidth_ = 0;
-    uint windowHeight_ = 0;
-    uint renderWidth_ = 0;
-    uint renderHeight_ = 0;
-    bool useHDR_ = false;
+	uint windowWidth_ = 0;
+	uint windowHeight_ = 0;
+	uint renderWidth_ = 0;
+	uint renderHeight_ = 0;
+	bool useHDR_ = false;
 };
 
 RenderContext *CreateRenderContext(

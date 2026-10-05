@@ -163,14 +163,7 @@ public:
 
 	ResourceHandle CreateTexture(const TextureDesc &desc, ResourceViewType viewType) override;
 	ResourceHandle CreateBuffer(const BufferDesc &desc, ResourceViewType viewType) override;
-	ResourceHandle CreateTextureAlternateView(ResourceHandle existingTexture,
-												Format format,
-												ResourceViewType viewType,
-												TextureDimension dimension = TextureDimension::Texture2D) override;
-	ResourceHandle CreateTextureMipArrayUAV(ResourceHandle existingTexture,
-											  Format format,
-											  uint32_t mipSlice,
-											  uint32_t arraySize) override;
+	ResourceHandle CreateTextureView(ResourceHandle existingTexture, const TextureViewDesc &desc) override;
 
 	std::vector<ResourceHandle> CreateBufferArray(std::span<const BufferDesc> descs,
 													ResourceViewType viewType) override;
@@ -218,6 +211,7 @@ public:
 	void MarkRootParameterSet(const ReflectedRootSignature &rootSignature, uint32_t rootParameterIndex);
 
 private:
+	DescriptorHandle CreateTextureViewDescriptor(D3D12Resource *resource, const TextureViewDesc &desc);
 	DescriptorHandle CreateViewForResource(D3D12Resource *resource,
 										   Format format,
 										   ResourceViewType viewType,
