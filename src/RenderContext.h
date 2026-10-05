@@ -391,7 +391,6 @@ public:
 	// Null until the scope has at least one sample.
 	virtual const GPUProfileScopeStats *GetProfileScopeStats(const std::string &name) const = 0;
 	virtual std::vector<GPUProfileScopeStats> GetAllProfileScopeStats() const = 0;
-	// Drops every sample collected so far, e.g. after changing what's being measured.
 	virtual void ResetProfiler() = 0;
 	virtual void SetSRV(uint32_t shaderRegister, ResourceHandle resource) = 0;
 	virtual void SetUAV(uint32_t shaderRegister, ResourceHandle resource) = 0;
@@ -444,9 +443,6 @@ public:
 	virtual void BuildAccelerationStructure(AccelerationStructureHandle handle) = 0;
 	virtual ResourceHandle GetAccelerationStructureSRV(AccelerationStructureHandle handle) = 0;
 	virtual void DestroyAccelerationStructure(AccelerationStructureHandle handle) = 0;
-	// Must be called after building one or more acceleration structures and before anything reads
-	// them (a TLAS build referencing BLAS addresses, or DispatchRays traversing a TLAS) - the
-	// runtime does not implicitly synchronize acceleration structure builds.
 	virtual void UAVBarrierForAccelerationStructures() = 0;
 
 	// pipeline supplies the root signature for root-constants > 0; ignored otherwise (pass InvalidPipelineHandle).
@@ -462,8 +458,6 @@ public:
 	virtual void SetPrimitiveTopology(PrimitiveTopology topology = PrimitiveTopology::TriangleList) = 0;
 	virtual void ClearRenderTarget(Resource renderTarget, float clearColour[4]) = 0;
 	virtual void ClearDepthStencil(Resource depthStencil, float depth = 1.0f, uint8_t stencil = 0) = 0;
-	// Zeroes (or fills with clearValue) a UAV buffer's contents. Requires the resource to already
-	// be in the UnorderedAccess layout/sync/access state.
 	virtual void ClearUAVBufferUint(ResourceHandle handle, uint32_t clearValue = 0) = 0;
 	virtual void SetRenderTargets(const Resource *renderTargets,
 								  uint numRenderTargets,
@@ -492,7 +486,7 @@ public:
 
 	// Non-owning UAV over a single mip of a texture, covering every array slice: a cube map's six
 	// faces are viewed as a Texture2DArray so one dispatch can write a whole mip level.
-	// CAUTION: shares the resource-state caveat above - only transition the owning handle.
+	// CAUTION: shares the resource-state caveat above, only transition the owning handle.
 	virtual ResourceHandle CreateTextureMipArrayUAV(
 			ResourceHandle existingTexture, Format format, uint32_t mipSlice, uint32_t arraySize) = 0;
 
@@ -527,8 +521,6 @@ public:
 									uint64_t offset,
 									uint64_t sizeInBytes) = 0;
 
-	// Whole-resource copy between two identically-described textures, for keeping a previous-frame
-	// copy of a G-buffer target. Caller transitions src to CopySource and dst to CopyDest first.
 	virtual void CopyTexture(ResourceHandle dstHandle, ResourceHandle srcHandle) = 0;
 
 	virtual void CopyBufferRegion(ResourceHandle dstHandle,
@@ -537,7 +529,6 @@ public:
 								  uint64_t srcOffset,
 								  uint64_t sizeInBytes) = 0;
 
-    // Root constants go wherever the shader's g_PushConstants/pushConstants CBV is declared.
     virtual void SetGraphics32BitConstants(const void *data, uint32_t num32BitValues) = 0;
 	virtual ResourceViewInfo GetResourceViewInfo(ResourceHandle handle) const = 0;
 	virtual Resource GetResource(ResourceHandle handle) const = 0;
@@ -548,7 +539,7 @@ public:
 
 	// Barrier covering every resource at once, for ordering back-to-back dispatches that share a
 	// large set of UAVs. Cheaper than transitioning each buffer individually when a whole pass
-	// group (e.g. the GI1 hash-grid / reservoir buffers) has to be ordered as a unit.
+	// group has to be ordered as a unit.
 	virtual void GlobalBarrier(ResourceSync syncBefore,
 							   ResourceAccess accessBefore,
 							   ResourceSync syncAfter,
