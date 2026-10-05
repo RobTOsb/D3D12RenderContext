@@ -212,13 +212,10 @@ public:
 
 private:
 	DescriptorHandle CreateTextureViewDescriptor(D3D12Resource *resource, const TextureViewDesc &desc);
-	DescriptorHandle CreateViewForResource(D3D12Resource *resource,
-										   Format format,
-										   ResourceViewType viewType,
-										   bool isBuffer,
-										   uint64_t bufferSizeInBytes,
-										   uint32_t bufferStructureByteStride,
-										   TextureDimension dimension = TextureDimension::Texture2D);
+	DescriptorHandle CreateBufferViewDescriptor(D3D12Resource *resource,
+											ResourceViewType viewType,
+											uint64_t sizeInBytes,
+											uint32_t structureByteStride);
 
 	// Registers non-owning ResourceEntry per swapchain back buffer.
 	void RegisterSwapchainBackBuffers();

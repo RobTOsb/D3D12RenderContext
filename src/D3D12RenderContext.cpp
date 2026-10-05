@@ -1784,23 +1784,11 @@ DescriptorHandle D3D12RenderContext::CreateTextureViewDescriptor(D3D12Resource *
 	throw std::runtime_error("Invalid ResourceViewType.");
 }
 
-DescriptorHandle D3D12RenderContext::CreateViewForResource(D3D12Resource *resource,
-														   Format format,
-														   ResourceViewType viewType,
-														   bool isBuffer,
-														   uint64_t bufferSizeInBytes,
-														   uint32_t bufferStructureByteStride,
-														   TextureDimension dimension)
+DescriptorHandle D3D12RenderContext::CreateBufferViewDescriptor(D3D12Resource *resource,
+																ResourceViewType viewType,
+																uint64_t sizeInBytes,
+																uint32_t structureByteStride)
 {
-	if (!isBuffer)
-	{
-		TextureViewDesc desc;
-		desc.format = format;
-		desc.viewType = viewType;
-		desc.dimension = dimension;
-		return CreateTextureViewDescriptor(resource, desc);
-	}
-
 	switch (viewType)
 	{
 		case ResourceViewType::ShaderResource:
@@ -1809,9 +1797,9 @@ DescriptorHandle D3D12RenderContext::CreateViewForResource(D3D12Resource *resour
 			srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 			srvDesc.Format = DXGI_FORMAT_UNKNOWN;
 			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-			const uint32_t stride = bufferStructureByteStride != 0 ? bufferStructureByteStride : 4;
-			srvDesc.Buffer.NumElements = static_cast<UINT>(bufferSizeInBytes / stride);
-			srvDesc.Buffer.StructureByteStride = bufferStructureByteStride;
+			const uint32_t stride = structureByteStride != 0 ? structureByteStride : 4;
+			srvDesc.Buffer.NumElements = static_cast<UINT>(sizeInBytes / stride);
+			srvDesc.Buffer.StructureByteStride = structureByteStride;
 			return resourceDescriptorHeap_->CreateSRV(resource, srvDesc);
 		}
 		case ResourceViewType::UnorderedAccess:
@@ -1819,16 +1807,16 @@ DescriptorHandle D3D12RenderContext::CreateViewForResource(D3D12Resource *resour
 			D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
 			uavDesc.Format = DXGI_FORMAT_UNKNOWN;
 			uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-			const uint32_t stride = bufferStructureByteStride != 0 ? bufferStructureByteStride : 4;
-			uavDesc.Buffer.NumElements = static_cast<UINT>(bufferSizeInBytes / stride);
-			uavDesc.Buffer.StructureByteStride = bufferStructureByteStride;
+			const uint32_t stride = structureByteStride != 0 ? structureByteStride : 4;
+			uavDesc.Buffer.NumElements = static_cast<UINT>(sizeInBytes / stride);
+			uavDesc.Buffer.StructureByteStride = structureByteStride;
 			return resourceDescriptorHeap_->CreateUAV(resource, uavDesc);
 		}
 		case ResourceViewType::ConstantBuffer:
 		{
 			D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
 			cbvDesc.BufferLocation = resource->GetResource()->GetGPUVirtualAddress();
-			cbvDesc.SizeInBytes = static_cast<UINT>((bufferSizeInBytes + 255) & ~255ull);
+			cbvDesc.SizeInBytes = static_cast<UINT>((sizeInBytes + 255) & ~255ull);
 			return resourceDescriptorHeap_->CreateCBV(cbvDesc);
 		}
 	}
@@ -1863,8 +1851,11 @@ ResourceHandle D3D12RenderContext::CreateTextureResourceAndView(const TextureDes
 		texture->SetName(desc.debugName);
 	}
 
-	const DescriptorHandle descriptorIndex =
-			CreateViewForResource(texture.get(), desc.format, viewType, false, 0, 0, desc.dimension);
+	TextureViewDesc viewDesc;
+	viewDesc.format = desc.format;
+	viewDesc.viewType = viewType;
+	viewDesc.dimension = desc.dimension;
+	const DescriptorHandle descriptorIndex = CreateTextureViewDescriptor(texture.get(), viewDesc);
 
 	const ResourceHandle handle = nextResourceHandle_++;
 	ResourceEntry &entry = resources_[handle];
@@ -1903,12 +1894,7 @@ ResourceHandle D3D12RenderContext::CreateBufferResourceAndView(const BufferDesc 
 		buffer->SetName(desc.debugName);
 	}
 
-	const DescriptorHandle descriptorIndex = CreateViewForResource(buffer.get(),
-																   Format::Unknown,
-																   viewType,
-																   true,
-																   desc.sizeInBytes,
-																   desc.structureByteStride);
+	const DescriptorHandle descriptorIndex = CreateBufferViewDescriptor(buffer.get(), viewType, desc.sizeInBytes, desc.structureByteStride);
 
 	const ResourceHandle handle = nextResourceHandle_++;
 	ResourceEntry &entry = resources_[handle];
@@ -2279,12 +2265,7 @@ ResourceHandle D3D12RenderContext::CreateUploadBuffer(const BufferDesc &desc,
 		std::memcpy(buffer->GetMappedData(), initialData, desc.sizeInBytes);
 	}
 
-	const DescriptorHandle descriptorIndex = CreateViewForResource(buffer.get(),
-																   Format::Unknown,
-																   viewType,
-																   true,
-																   desc.sizeInBytes,
-																   desc.structureByteStride);
+	const DescriptorHandle descriptorIndex = CreateBufferViewDescriptor(buffer.get(), viewType, desc.sizeInBytes, desc.structureByteStride);
 
 	const ResourceHandle handle = nextResourceHandle_++;
 	ResourceEntry &entry = resources_[handle];
@@ -2388,12 +2369,7 @@ ResourceHandle D3D12RenderContext::CreateConstantBuffer(uint64_t sizeInBytes, co
 
 	buffer->Map();
 
-	const DescriptorHandle descriptorIndex = CreateViewForResource(buffer.get(),
-																   Format::Unknown,
-																   ResourceViewType::ConstantBuffer,
-																   true,
-																   alignedSize,
-																   0);
+	const DescriptorHandle descriptorIndex = CreateBufferViewDescriptor(buffer.get(), ResourceViewType::ConstantBuffer, alignedSize, 0);
 
 	const ResourceHandle handle = nextResourceHandle_++;
 	ResourceEntry &entry = resources_[handle];
@@ -2533,12 +2509,9 @@ void D3D12RenderContext::RegisterSwapchainBackBuffers()
 
 	for (auto &backBuffer: backBuffers)
 	{
-		const DescriptorHandle descriptorIndex = CreateViewForResource(backBuffer.get(),
-																	   backBufferFormat,
-																	   ResourceViewType::ShaderResource,
-																	   false,
-																	   0,
-																	   0);
+		TextureViewDesc viewDesc;
+		viewDesc.format = backBufferFormat;
+		const DescriptorHandle descriptorIndex = CreateTextureViewDescriptor(backBuffer.get(), viewDesc);
 
 		const ResourceHandle handle = nextResourceHandle_++;
 		ResourceEntry &entry = resources_[handle];
