@@ -121,6 +121,8 @@ public:
 	void SetRaytracingConstantBufferByName(const std::string &name, ResourceHandle resource) override;
 	void SetRaytracingScalarByName(const std::string &name, const void *data, uint32_t sizeInBytes) override;
 
+	ShaderExecutionReorderingSupport GetShaderExecutionReorderingSupport() const override;
+
 	ShaderTableHandle CreateShaderTable(PipelineHandle raytracingPipeline) override;
 	void AddRayGenShaderRecord(ShaderTableHandle table, const std::string &exportName) override;
 	void AddMissShaderRecord(ShaderTableHandle table, const std::string &exportName) override;

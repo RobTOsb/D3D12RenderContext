@@ -328,6 +328,14 @@ struct RaytracingPipelineDesc
 	uint32_t maxTraceRecursionDepth = 1;
 	std::vector<std::string>
 			defines; // Slang preprocessor defines ("NAME" or "NAME=VALUE"); use them for shader permutations
+	std::string profile = "lib_6_6"; // DXIL library target, "lib_6_9" for HitObject / MaybeReorderThread
+};
+
+// DXR 1.2 shader execution reordering (HitObject and MaybeReorderThread in lib_6_9 shaders).
+struct ShaderExecutionReorderingSupport
+{
+	bool supported = false;
+	bool actuallyReorders = false; // false where MaybeReorderThread is a no-op
 };
 
 struct BLASGeometry
@@ -445,6 +453,8 @@ public:
 	virtual void SetRaytracingUAVByName(const std::string &name, ResourceHandle resource) = 0;
 	virtual void SetRaytracingConstantBufferByName(const std::string &name, ResourceHandle resource) = 0;
 	virtual void SetRaytracingScalarByName(const std::string &name, const void *data, uint32_t sizeInBytes) = 0;
+
+	virtual ShaderExecutionReorderingSupport GetShaderExecutionReorderingSupport() const = 0;
 
 	virtual ShaderTableHandle CreateShaderTable(PipelineHandle raytracingPipeline) = 0;
 	virtual void AddRayGenShaderRecord(ShaderTableHandle table, const std::string &exportName) = 0;

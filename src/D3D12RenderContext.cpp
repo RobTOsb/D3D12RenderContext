@@ -1252,12 +1252,13 @@ PipelineHandle D3D12RenderContext::CreateRaytracingPipeline(const std::string &s
 	}
 
 	// Slang only emits the entry points it is given, so every export (raygen/miss/hit/...) is
-	// passed as a lib_6_6 entry point; they are all linked into one DXIL library.
+	// passed as an entry point of the library profile; they are all linked into one DXIL library.
+	const std::wstring profile(pipelineDesc.profile.begin(), pipelineDesc.profile.end());
 	std::vector<ShaderEntryPoint> shaderEntryPoints;
 	shaderEntryPoints.reserve(pipelineDesc.exports.size());
 	for (const auto &exportName: pipelineDesc.exports)
 	{
-		shaderEntryPoints.push_back({ std::wstring(exportName.begin(), exportName.end()), L"lib_6_6" });
+		shaderEntryPoints.push_back({ std::wstring(exportName.begin(), exportName.end()), profile });
 	}
 
 	ShaderCompilationResult compileResult =
@@ -1299,6 +1300,11 @@ PipelineHandle D3D12RenderContext::CreateRaytracingPipeline(const std::string &s
 	const PipelineHandle handle = nextPipelineHandle_++;
 	raytracingPipelines_[handle] = std::move(pipeline);
 	return handle;
+}
+
+ShaderExecutionReorderingSupport D3D12RenderContext::GetShaderExecutionReorderingSupport() const
+{
+	return { device_->SupportsShaderExecutionReordering(), device_->ShaderExecutionReorderingActuallyReorders() };
 }
 
 ShaderTableHandle D3D12RenderContext::CreateShaderTable(PipelineHandle raytracingPipeline)
