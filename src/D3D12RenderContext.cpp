@@ -1397,6 +1397,7 @@ AccelerationStructureHandle D3D12RenderContext::CreateBLAS(const BLASGeometry &g
 	nativeGeometry.indexCount = geometry.indexCount;
 	nativeGeometry.indexFormat = DXGI_FORMAT_R32_UINT;
 	nativeGeometry.isOpaque = geometry.isOpaque;
+	nativeGeometry.noDuplicateAnyHit = geometry.noDuplicateAnyHit;
 
 	AccelerationStructureEntry entry;
 	entry.kind = AccelerationStructureKind::BLAS;

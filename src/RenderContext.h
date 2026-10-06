@@ -340,6 +340,7 @@ struct BLASGeometry
 	uint64_t indexBufferOffset = 0; // bytes, must be a multiple of 4 (R32_UINT indices)
 	uint32_t indexCount = 0;
 	bool isOpaque = true;
+	bool noDuplicateAnyHit = false; // one any-hit call per primitive per ray, for accumulating any-hit shaders
 };
 
 struct TLASInstance
