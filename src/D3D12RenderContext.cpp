@@ -2112,6 +2112,9 @@ ResourceHandle D3D12RenderContext::CreateTexture(const TextureDesc &desc,
 		{
 			const uint32_t alignedPitch =
 					static_cast<uint32_t>(AlignUp(mipData[m].rowPitch, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT));
+			// Placed footprints must start on a 512-byte boundary, which a mip with an odd row count
+			// (or a single row) would otherwise leave the next one off.
+			totalStagingSize = AlignUp(totalStagingSize, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
 			mipOffsets[m] = totalStagingSize;
 			mipAlignedPitches[m] = alignedPitch;
 			const uint32_t depth = std::max(1u, mipData[m].depth);
