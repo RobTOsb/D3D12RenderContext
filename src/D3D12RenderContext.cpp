@@ -46,7 +46,8 @@
 // 	};
 // } // namespace
 
-D3D12RenderContext::D3D12RenderContext(Window *window, uint framesInFlight, bool useSoftwareAdapter, bool useHDR)
+D3D12RenderContext::D3D12RenderContext(
+		Window *window, uint framesInFlight, uint swapchainImageCount, bool useSoftwareAdapter, bool useHDR)
 {
 	device_ = std::make_unique<D3D12Device>(useSoftwareAdapter);
 	graphicsQueue_ = std::make_unique<D3D12CommandQueue>(device_->GetNativeDevice(), D3D12QueueType::Graphics);
@@ -57,7 +58,7 @@ D3D12RenderContext::D3D12RenderContext(Window *window, uint framesInFlight, bool
 										  window->GetNativeWindow(),
 										  window->GetWidth(),
 										  window->GetHeight(),
-										  framesInFlight,
+										  swapchainImageCount,
 										  useHDR);
 
 	resourceDescriptorHeap_ =
@@ -76,6 +77,7 @@ D3D12RenderContext::D3D12RenderContext(Window *window, uint framesInFlight, bool
 	shaderCompiler_ = std::make_unique<SlangShaderCompiler>();
 
 	framesInFlight_ = framesInFlight;
+	swapchainImageCount_ = swapchain_->GetImageCount();
 
 	windowWidth_ = window->GetWidth();
 	windowHeight_ = window->GetHeight();

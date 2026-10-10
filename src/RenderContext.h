@@ -575,6 +575,11 @@ public:
 		return framesInFlight_;
 	}
 
+	uint GetSwapchainImageCount() const
+	{
+		return swapchainImageCount_;
+	}
+
 	uint GetCurrentFrame() const
 	{
 		return currentFrame_;
@@ -616,6 +621,7 @@ protected:
 	uint currentFrame_ = 0;
 	uint currentFrameIndex_ = 0;
 	uint framesInFlight_ = 0;
+	uint swapchainImageCount_ = 0;
 	uint windowWidth_ = 0;
 	uint windowHeight_ = 0;
 	uint renderWidth_ = 0;
@@ -623,5 +629,9 @@ protected:
 	bool useHDR_ = false;
 };
 
-RenderContext *CreateRenderContext(
-		Window *window, RenderAPI api, uint framesInFlight, bool useSoftwareAdapter = false, bool useHDR = false);
+RenderContext *CreateRenderContext(Window *window,
+								   RenderAPI api,
+								   uint framesInFlight,
+								   uint swapchainImageCount,
+								   bool useSoftwareAdapter = false,
+								   bool useHDR = false);

@@ -3,12 +3,17 @@
 
 #include "Window.h"
 
-RenderContext *CreateRenderContext(Window *window, RenderAPI api, uint framesInFlight, bool useSoftwareAdapter, bool useHDR)
+RenderContext *CreateRenderContext(Window *window,
+                                   RenderAPI api,
+                                   uint framesInFlight,
+                                   uint swapchainImageCount,
+                                   bool useSoftwareAdapter,
+                                   bool useHDR)
 {
     switch (api)
     {
     case RenderAPI::D3D12:
-        return new D3D12RenderContext(window, framesInFlight, useSoftwareAdapter, useHDR);
+        return new D3D12RenderContext(window, framesInFlight, swapchainImageCount, useSoftwareAdapter, useHDR);
     case RenderAPI::Vulkan:
         // Implement VulkanRenderContext creation
         return nullptr;

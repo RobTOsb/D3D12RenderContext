@@ -13,7 +13,11 @@ class D3D12ImguiRenderer;
 class D3D12RenderContext final : public RenderContext
 {
 public:
-	D3D12RenderContext(Window *window, uint framesInFlight = 3, bool useSoftwareAdapter = false, bool useHDR = false);
+	D3D12RenderContext(Window *window,
+					   uint framesInFlight = 3,
+					   uint swapchainImageCount = 3,
+					   bool useSoftwareAdapter = false,
+					   bool useHDR = false);
 	~D3D12RenderContext() override;
 
 	D3D12Device *GetDevice() const
