@@ -338,6 +338,30 @@ struct ShaderExecutionReorderingSupport
 	bool actuallyReorders = false; // false where MaybeReorderThread is a no-op
 };
 
+// GPU memory owned by the render context's allocator.
+struct GPUMemoryUsage
+{
+	uint32_t blockCount = 0;      // heaps and committed resources created from the driver
+	uint32_t allocationCount = 0; // resources placed in those blocks
+	uint64_t blockBytes = 0;      // reserved from the driver
+	uint64_t allocationBytes = 0; // of which in use by resources
+};
+
+// A memory segment group as the OS sees it.
+struct GPUMemorySegment
+{
+	GPUMemoryUsage allocator;
+	uint64_t usageBytes = 0;  // the whole process, including what the allocator does not own (swap chain, PSOs, ...)
+	uint64_t budgetBytes = 0; // what the OS currently lets the process use before it starts paging
+};
+
+struct GPUMemoryStats
+{
+	bool unifiedMemory = false; // integrated GPU: everything lives in the local segment
+	GPUMemorySegment local;     // video memory
+	GPUMemorySegment nonLocal;  // system memory the GPU reaches over the bus
+};
+
 struct BLASGeometry
 {
 	ResourceHandle vertexBuffer = InvalidResourceHandle;
@@ -455,6 +479,9 @@ public:
 	virtual void SetRaytracingScalarByName(const std::string &name, const void *data, uint32_t sizeInBytes) = 0;
 
 	virtual ShaderExecutionReorderingSupport GetShaderExecutionReorderingSupport() const = 0;
+
+	// Cheap: running totals and the OS budget, which refreshes once per frame.
+	virtual GPUMemoryStats GetMemoryStats() const = 0;
 
 	virtual ShaderTableHandle CreateShaderTable(PipelineHandle raytracingPipeline) = 0;
 	virtual void AddRayGenShaderRecord(ShaderTableHandle table, const std::string &exportName) = 0;

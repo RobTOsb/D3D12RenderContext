@@ -127,6 +127,8 @@ public:
 
 	ShaderExecutionReorderingSupport GetShaderExecutionReorderingSupport() const override;
 
+	GPUMemoryStats GetMemoryStats() const override;
+
 	ShaderTableHandle CreateShaderTable(PipelineHandle raytracingPipeline) override;
 	void AddRayGenShaderRecord(ShaderTableHandle table, const std::string &exportName) override;
 	void AddMissShaderRecord(ShaderTableHandle table, const std::string &exportName) override;

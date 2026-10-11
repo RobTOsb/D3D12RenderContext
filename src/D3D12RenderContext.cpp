@@ -1309,6 +1309,34 @@ ShaderExecutionReorderingSupport D3D12RenderContext::GetShaderExecutionReorderin
 	return { device_->SupportsShaderExecutionReordering(), device_->ShaderExecutionReorderingActuallyReorders() };
 }
 
+namespace
+{
+	GPUMemoryUsage ToMemoryUsage(const D3D12MA::Statistics &stats)
+	{
+		return { stats.BlockCount, stats.AllocationCount, stats.BlockBytes, stats.AllocationBytes };
+	}
+
+	GPUMemorySegment ToMemorySegment(const D3D12MA::Budget &budget)
+	{
+		return { ToMemoryUsage(budget.Stats), budget.UsageBytes, budget.BudgetBytes };
+	}
+} // namespace
+
+GPUMemoryStats D3D12RenderContext::GetMemoryStats() const
+{
+	D3D12MA::Allocator *allocator = device_->GetMemoryAllocator().Get();
+
+	D3D12MA::Budget local = {};
+	D3D12MA::Budget nonLocal = {};
+	allocator->GetBudget(&local, &nonLocal);
+
+	GPUMemoryStats stats;
+	stats.unifiedMemory = allocator->IsUMA();
+	stats.local = ToMemorySegment(local);
+	stats.nonLocal = ToMemorySegment(nonLocal);
+	return stats;
+}
+
 ShaderTableHandle D3D12RenderContext::CreateShaderTable(PipelineHandle raytracingPipeline)
 {
 	auto it = raytracingPipelines_.find(raytracingPipeline);
