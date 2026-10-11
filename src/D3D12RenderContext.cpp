@@ -14,6 +14,11 @@
 #undef min
 #undef max
 
+static uint64_t AlignUp(uint64_t size, uint64_t alignment)
+{
+	return (size + alignment - 1) & ~(alignment - 1);
+}
+
 // namespace
 // {
 // 	class D3D12TextureCompressor final : public ITextureCompressor
@@ -1495,6 +1500,131 @@ void D3D12RenderContext::BuildAccelerationStructure(AccelerationStructureHandle 
 	}
 }
 
+void D3D12RenderContext::BuildCompactedBLASes(std::span<const AccelerationStructureHandle> handles)
+{
+	// Builds run side by side while their scratch fits in a pool this big, then wait for each other.
+	constexpr uint64_t kScratchPoolBytes = 64ull * 1024 * 1024;
+
+	std::vector<D3D12BottomLevelAS *> blases;
+	blases.reserve(handles.size());
+	uint64_t largestScratch = 0;
+	uint64_t totalScratch = 0;
+	uint64_t uncompactedBytes = 0;
+	for (AccelerationStructureHandle handle: handles)
+	{
+		auto it = accelerationStructures_.find(handle);
+		if (it == accelerationStructures_.end() || it->second.kind != AccelerationStructureKind::BLAS)
+		{
+			throw std::runtime_error("BuildCompactedBLASes: invalid BLAS handle.");
+		}
+		D3D12BottomLevelAS *blas = it->second.blas.get();
+		blases.push_back(blas);
+		const uint64_t scratch = AlignUp(blas->GetScratchSize(), D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+		largestScratch = std::max(largestScratch, scratch);
+		totalScratch += scratch;
+		uncompactedBytes += blas->GetResultSize();
+	}
+	if (blases.empty())
+	{
+		return;
+	}
+
+	auto submit = [&](auto record)
+	{
+		std::unique_ptr<D3D12CommandList> cmdList = device_->CreateCommandList(D3D12CommandListType::Compute);
+		std::unique_ptr<D3D12Fence> fence = device_->CreateFence(0);
+		cmdList->SetName("BuildCompactedBLASes");
+		cmdList->BeginCommandList();
+		record(*cmdList);
+		cmdList->EndCommandList();
+		D3D12CommandList *cmds[] = { cmdList.get() };
+		const SubmitSyncInfo syncInfo = { .fence = fence.get(), .signalValue = 1 };
+		computeQueue_->ExecuteCommandLists(cmds, 1, syncInfo);
+		fence->Wait(1);
+	};
+
+	const uint64_t poolBytes = std::max(largestScratch, std::min(totalScratch, kScratchPoolBytes));
+	std::unique_ptr<D3D12Resource> scratchPool = device_->CreateAccelerationStructureBuffer(poolBytes, true);
+	scratchPool->SetName(L"BLASScratchPool");
+
+	// One UINT64 compacted size per BLAS, which the builds write and the CPU reads back.
+	const uint64_t sizesBytes = blases.size() * sizeof(uint64_t);
+	std::unique_ptr<D3D12Resource> sizes = device_->CreateAccelerationStructureBuffer(sizesBytes, true);
+	D3D12_RESOURCE_DESC1 readbackDesc = {};
+	readbackDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	readbackDesc.Width = sizesBytes;
+	readbackDesc.Height = 1;
+	readbackDesc.DepthOrArraySize = 1;
+	readbackDesc.MipLevels = 1;
+	readbackDesc.Format = DXGI_FORMAT_UNKNOWN;
+	readbackDesc.SampleDesc = { 1, 0 };
+	readbackDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	std::unique_ptr<D3D12Buffer> readback =
+			device_->CreateBuffer(readbackDesc, D3D12_HEAP_TYPE_READBACK, D3D12_BARRIER_LAYOUT_UNDEFINED);
+
+	submit(
+			[&](D3D12CommandList &cmdList)
+			{
+				const D3D12_GPU_VIRTUAL_ADDRESS poolAddress = scratchPool->GetResource()->GetGPUVirtualAddress();
+				const D3D12_GPU_VIRTUAL_ADDRESS sizesAddress = sizes->GetResource()->GetGPUVirtualAddress();
+				uint64_t poolOffset = 0;
+				for (size_t i = 0; i < blases.size(); ++i)
+				{
+					const uint64_t scratch =
+							AlignUp(blases[i]->GetScratchSize(), D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+					if (poolOffset + scratch > poolBytes)
+					{
+						// The builds so far are done with their scratch before the next ones reuse it.
+						cmdList.SetGlobalBarrier(D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE,
+												 D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
+												 D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE,
+												 D3D12_BARRIER_ACCESS_UNORDERED_ACCESS);
+						poolOffset = 0;
+					}
+					blases[i]->Build(&cmdList, poolAddress + poolOffset, sizesAddress + i * sizeof(uint64_t));
+					poolOffset += scratch;
+				}
+
+				cmdList.SetGlobalBarrier(D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE |
+												 D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO,
+										 D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
+										 D3D12_BARRIER_SYNC_COPY,
+										 D3D12_BARRIER_ACCESS_COPY_SOURCE);
+				cmdList.CopyBufferRegion(readback.get(), 0, sizes.get(), 0, sizesBytes);
+			});
+
+	std::vector<uint64_t> compactedSizes(blases.size());
+	readback->Map(0, { 0, sizesBytes });
+	std::memcpy(compactedSizes.data(), readback->GetMappedData(), sizesBytes);
+	readback->Unmap();
+
+	// The builds finished with the last submission, so each BLAS can be copied out in its compacted size.
+	uint64_t compactedBytes = 0;
+	submit(
+			[&](D3D12CommandList &cmdList)
+			{
+				for (size_t i = 0; i < blases.size(); ++i)
+				{
+					if (compactedSizes[i] > 0 && compactedSizes[i] < blases[i]->GetResultSize())
+					{
+						blases[i]->Compact(&cmdList, compactedSizes[i]);
+					}
+					compactedBytes += blases[i]->GetResultSize();
+				}
+			});
+	for (D3D12BottomLevelAS *blas: blases)
+	{
+		blas->ReleaseUncompacted();
+	}
+
+	logi("Built {} BLAS(es): {:.1f} MB compacted from {:.1f} MB, {:.1f} MB of shared scratch (was {:.1f} MB)",
+		 blases.size(),
+		 compactedBytes / (1024.0 * 1024.0),
+		 uncompactedBytes / (1024.0 * 1024.0),
+		 poolBytes / (1024.0 * 1024.0),
+		 totalScratch / (1024.0 * 1024.0));
+}
+
 ResourceHandle D3D12RenderContext::GetAccelerationStructureSRV(AccelerationStructureHandle handle)
 {
 	auto it = accelerationStructures_.find(handle);
@@ -2052,11 +2182,6 @@ std::vector<ResourceHandle> D3D12RenderContext::CreateBufferArray(std::span<cons
 	}
 
 	return views;
-}
-
-static uint64_t AlignUp(uint64_t size, uint64_t alignment)
-{
-	return (size + alignment - 1) & ~(alignment - 1);
 }
 
 UploadBatchHandle D3D12RenderContext::BeginUpload()

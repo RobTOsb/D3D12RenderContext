@@ -139,6 +139,7 @@ public:
 	AccelerationStructureHandle CreateBLAS(const BLASGeometry &geometry) override;
 	AccelerationStructureHandle CreateTLAS(std::span<const TLASInstance> instances) override;
 	void BuildAccelerationStructure(AccelerationStructureHandle handle) override;
+	void BuildCompactedBLASes(std::span<const AccelerationStructureHandle> handles) override;
 	ResourceHandle GetAccelerationStructureSRV(AccelerationStructureHandle handle) override;
 	void DestroyAccelerationStructure(AccelerationStructureHandle handle) override;
 	void UAVBarrierForAccelerationStructures() override;

@@ -493,6 +493,7 @@ public:
 	virtual AccelerationStructureHandle CreateBLAS(const BLASGeometry &geometry) = 0;
 	virtual AccelerationStructureHandle CreateTLAS(std::span<const TLASInstance> instances) = 0;
 	virtual void BuildAccelerationStructure(AccelerationStructureHandle handle) = 0;
+	virtual void BuildCompactedBLASes(std::span<const AccelerationStructureHandle> handles) = 0;
 	virtual ResourceHandle GetAccelerationStructureSRV(AccelerationStructureHandle handle) = 0;
 	virtual void DestroyAccelerationStructure(AccelerationStructureHandle handle) = 0;
 	virtual void UAVBarrierForAccelerationStructures() = 0;
