@@ -190,7 +190,9 @@ enum class Format
 	D24_UNORM_S8_UINT = 45,
 	R16_FLOAT = 54,
 	R8_UNORM = 61,
-	B8G8R8A8_UNORM = 87
+	B8G8R8A8_UNORM = 87,
+	BC7_UNORM = 98,
+	BC7_UNORM_SRGB = 99
 };
 
 enum class TextureDimension

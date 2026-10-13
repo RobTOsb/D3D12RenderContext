@@ -2,6 +2,7 @@
 
 
 #include "D3D12ImguiRenderer.h"
+#include "GPUEncoder.h"
 #include "Window.h"
 
 #include "fmtlog.h"
@@ -19,37 +20,37 @@ static uint64_t AlignUp(uint64_t size, uint64_t alignment)
 	return (size + alignment - 1) & ~(alignment - 1);
 }
 
-// namespace
-// {
-// 	class D3D12TextureCompressor final : public ITextureCompressor
-// 	{
-// 	public:
-// 		D3D12TextureCompressor(D3D12Device *device, D3D12CommandQueue *computeQueue, D3D12DescriptorHeap *heap) :
-// 			encoder_(device, computeQueue, heap)
-// 		{
-// 		}
+namespace
+{
+	class D3D12TextureCompressor final : public ITextureCompressor
+	{
+	public:
+		D3D12TextureCompressor(D3D12Device *device, D3D12CommandQueue *computeQueue) :
+			encoder_(device, computeQueue)
+		{
+		}
 
-// 		bool Initialise() override
-// 		{
-// 			return encoder_.Initialise();
-// 		}
+		bool Initialise() override
+		{
+			return encoder_.Initialise();
+		}
 
-// 		bool IsReady() const override
-// 		{
-// 			return encoder_.IsReady();
-// 		}
+		bool IsReady() const override
+		{
+			return encoder_.IsReady();
+		}
 
-// 		HRESULT Compress(const DirectX::ScratchImage &srcChain,
-// 						 DXGI_FORMAT bcFormat,
-// 						 DirectX::ScratchImage &result) override
-// 		{
-// 			return encoder_.Compress(srcChain, bcFormat, result);
-// 		}
+		HRESULT Compress(const DirectX::ScratchImage &srcChain,
+						 DXGI_FORMAT bcFormat,
+						 DirectX::ScratchImage &result) override
+		{
+			return encoder_.Compress(srcChain, bcFormat, result);
+		}
 
-// 	private:
-// 		GPUEncoder encoder_;
-// 	};
-// } // namespace
+	private:
+		GPUEncoder encoder_;
+	};
+} // namespace
 
 D3D12RenderContext::D3D12RenderContext(
 		Window *window, uint framesInFlight, uint swapchainImageCount, bool useSoftwareAdapter, bool useHDR)
@@ -2314,9 +2315,15 @@ ResourceHandle D3D12RenderContext::CreateTexture(const TextureDesc &desc,
 		ID3D12GraphicsCommandList *nativeCmdList = batchEntry.cmdList->GetNativeCommandList().Get();
 		for (uint32_t m = 0; m < mipData.size(); ++m)
 		{
-			const uint32_t mipWidth = std::max(1u, desc.width >> m);
-			const uint32_t mipHeight = std::max(1u, desc.height >> m);
+			uint32_t mipWidth = std::max(1u, desc.width >> m);
+			uint32_t mipHeight = std::max(1u, desc.height >> m);
 			const uint32_t mipDepth = std::max(1u, mipData[m].depth);
+			if (DirectX::IsCompressed(dxgiFormat))
+			{
+				// Block-compressed footprints cover whole 4x4 blocks, even for the mips below 4x4.
+				mipWidth = static_cast<uint32_t>(AlignUp(mipWidth, 4));
+				mipHeight = static_cast<uint32_t>(AlignUp(mipHeight, 4));
+			}
 
 			D3D12_TEXTURE_COPY_LOCATION dstLoc = {};
 			dstLoc.pResource = texture->GetResource();
@@ -2499,15 +2506,9 @@ void D3D12RenderContext::CopyBufferRegion(ResourceHandle dstHandle,
 														 sizeInBytes);
 }
 
-// std::unique_ptr<ITextureCompressor> D3D12RenderContext::CreateTextureCompressor()
-// {
-// 	return std::make_unique<D3D12TextureCompressor>(device_.get(), computeQueue_.get(), resourceDescriptorHeap_.get());
-// }
-
-// The GPU BC encoder (GPUEncoder) is not part of this build; callers must handle a null compressor.
 std::unique_ptr<ITextureCompressor> D3D12RenderContext::CreateTextureCompressor()
 {
-	return nullptr;
+	return std::make_unique<D3D12TextureCompressor>(device_.get(), computeQueue_.get());
 }
 
 ResourceHandle D3D12RenderContext::CreateConstantBuffer(uint64_t sizeInBytes, const std::string &debugName)
