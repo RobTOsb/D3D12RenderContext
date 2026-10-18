@@ -1302,6 +1302,7 @@ PipelineHandle D3D12RenderContext::CreateRaytracingPipeline(const std::string &s
 	info.maxPayloadSizeInBytes = pipelineDesc.maxPayloadSizeInBytes;
 	info.maxAttributeSizeInBytes = pipelineDesc.maxAttributeSizeInBytes;
 	info.maxTraceRecursionDepth = pipelineDesc.maxTraceRecursionDepth;
+	info.allowOpacityMicromaps = pipelineDesc.allowOpacityMicromaps;
 
 	pipeline->BuildRaytracingPipeline(info, compileResult);
 
@@ -1313,6 +1314,11 @@ PipelineHandle D3D12RenderContext::CreateRaytracingPipeline(const std::string &s
 ShaderExecutionReorderingSupport D3D12RenderContext::GetShaderExecutionReorderingSupport() const
 {
 	return { device_->SupportsShaderExecutionReordering(), device_->ShaderExecutionReorderingActuallyReorders() };
+}
+
+bool D3D12RenderContext::SupportsOpacityMicromaps() const
+{
+	return device_->SupportsOpacityMicromaps();
 }
 
 namespace
@@ -1420,6 +1426,94 @@ void D3D12RenderContext::DispatchRays(ShaderTableHandle table, uint32_t width, u
 	frameResources.graphicsCommandList->DispatchRays(desc);
 }
 
+void D3D12RenderContext::SubmitComputeAndWait(const std::function<void(D3D12CommandList &)> &record)
+{
+	std::unique_ptr<D3D12CommandList> cmdList = device_->CreateCommandList(D3D12CommandListType::Compute);
+	std::unique_ptr<D3D12Fence> fence = device_->CreateFence(0);
+	cmdList->SetName("BuildAccelerationStructures");
+	cmdList->BeginCommandList();
+	record(*cmdList);
+	cmdList->EndCommandList();
+	D3D12CommandList *cmds[] = { cmdList.get() };
+	const SubmitSyncInfo syncInfo = { .fence = fence.get(), .signalValue = 1 };
+	computeQueue_->ExecuteCommandLists(cmds, 1, syncInfo);
+	fence->Wait(1);
+}
+
+AccelerationStructureHandle D3D12RenderContext::CreateOpacityMicromapArray(std::span<const uint8_t> data,
+																		   std::span<const OpacityMicromap> micromaps)
+{
+	if (!device_->SupportsOpacityMicromaps())
+	{
+		throw std::runtime_error("CreateOpacityMicromapArray: the device has no opacity micromaps.");
+	}
+
+	std::vector<D3D12_RAYTRACING_OPACITY_MICROMAP_DESC> descs(micromaps.size());
+	for (size_t i = 0; i < micromaps.size(); ++i)
+	{
+		descs[i].ByteOffset = micromaps[i].byteOffset;
+		descs[i].SubdivisionLevel = micromaps[i].subdivisionLevel;
+		descs[i].Format = micromaps[i].states == 2 ? D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_2_STATE
+												   : D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_4_STATE;
+	}
+	auto array = std::make_unique<D3D12OpacityMicromapArray>(device_.get(), data, descs);
+	const uint64_t uncompactedBytes = array->GetResultSize();
+
+	std::unique_ptr<D3D12Resource> scratch = device_->CreateAccelerationStructureBuffer(
+			std::max<uint64_t>(array->GetScratchSize(), D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT),
+			true);
+	std::unique_ptr<D3D12Resource> size = device_->CreateAccelerationStructureBuffer(sizeof(uint64_t), true);
+	D3D12_RESOURCE_DESC1 readbackDesc = {};
+	readbackDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	readbackDesc.Width = sizeof(uint64_t);
+	readbackDesc.Height = 1;
+	readbackDesc.DepthOrArraySize = 1;
+	readbackDesc.MipLevels = 1;
+	readbackDesc.Format = DXGI_FORMAT_UNKNOWN;
+	readbackDesc.SampleDesc = { 1, 0 };
+	readbackDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	std::unique_ptr<D3D12Buffer> readback =
+			device_->CreateBuffer(readbackDesc, D3D12_HEAP_TYPE_READBACK, D3D12_BARRIER_LAYOUT_UNDEFINED);
+
+	SubmitComputeAndWait(
+			[&](D3D12CommandList &cmdList)
+			{
+				array->Build(&cmdList,
+							 scratch->GetResource()->GetGPUVirtualAddress(),
+							 size->GetResource()->GetGPUVirtualAddress());
+				cmdList.SetGlobalBarrier(D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE |
+												 D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO,
+										 D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
+										 D3D12_BARRIER_SYNC_COPY,
+										 D3D12_BARRIER_ACCESS_COPY_SOURCE);
+				cmdList.CopyBufferRegion(readback.get(), 0, size.get(), 0, sizeof(uint64_t));
+			});
+
+	uint64_t compactedSize = 0;
+	readback->Map(0, { 0, sizeof(uint64_t) });
+	std::memcpy(&compactedSize, readback->GetMappedData(), sizeof(uint64_t));
+	readback->Unmap();
+	if (compactedSize > 0 && compactedSize < array->GetResultSize())
+	{
+		SubmitComputeAndWait([&](D3D12CommandList &cmdList) { array->Compact(&cmdList, compactedSize); });
+	}
+	array->ReleaseBuildResources();
+
+	logi("Built an opacity micromap array of {} OMM(s) from {:.1f} MB of states: {:.1f} MB compacted from {:.1f} MB",
+		 micromaps.size(),
+		 data.size() / (1024.0 * 1024.0),
+		 array->GetResultSize() / (1024.0 * 1024.0),
+		 uncompactedBytes / (1024.0 * 1024.0));
+
+	AccelerationStructureEntry entry;
+	entry.kind = AccelerationStructureKind::OpacityMicromapArray;
+	entry.opacityMicromaps = std::move(array);
+
+	const AccelerationStructureHandle handle = nextAccelerationStructureHandle_++;
+	accelerationStructures_[handle] = std::move(entry);
+	return handle;
+}
+
 AccelerationStructureHandle D3D12RenderContext::CreateBLAS(const BLASGeometry &geometry)
 {
 	auto vertexIt = resources_.find(geometry.vertexBuffer);
@@ -1440,6 +1534,28 @@ AccelerationStructureHandle D3D12RenderContext::CreateBLAS(const BLASGeometry &g
 	nativeGeometry.indexFormat = DXGI_FORMAT_R32_UINT;
 	nativeGeometry.isOpaque = geometry.isOpaque;
 	nativeGeometry.noDuplicateAnyHit = geometry.noDuplicateAnyHit;
+	if (geometry.opacityMicromapIndexBuffer != InvalidResourceHandle)
+	{
+		auto ommIndexIt = resources_.find(geometry.opacityMicromapIndexBuffer);
+		if (ommIndexIt == resources_.end())
+		{
+			throw std::runtime_error("CreateBLAS: invalid opacity micromap index buffer handle.");
+		}
+		nativeGeometry.opacityMicromapIndexBufferVA =
+				ommIndexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress() +
+				geometry.opacityMicromapIndexBufferOffset;
+		// No array is fine when every index is a special one.
+		if (geometry.opacityMicromapArray != InvalidAccelerationStructureHandle)
+		{
+			auto arrayIt = accelerationStructures_.find(geometry.opacityMicromapArray);
+			if (arrayIt == accelerationStructures_.end() ||
+				arrayIt->second.kind != AccelerationStructureKind::OpacityMicromapArray)
+			{
+				throw std::runtime_error("CreateBLAS: invalid opacity micromap array handle.");
+			}
+			nativeGeometry.opacityMicromapArrayVA = arrayIt->second.opacityMicromaps->GetGPUVirtualAddress();
+		}
+	}
 
 	AccelerationStructureEntry entry;
 	entry.kind = AccelerationStructureKind::BLAS;
@@ -1495,9 +1611,13 @@ void D3D12RenderContext::BuildAccelerationStructure(AccelerationStructureHandle 
 	{
 		entry.blas->Build(frameResources.graphicsCommandList.get());
 	}
-	else
+	else if (entry.kind == AccelerationStructureKind::TLAS)
 	{
 		entry.tlas->Build(frameResources.graphicsCommandList.get());
+	}
+	else
+	{
+		throw std::runtime_error("BuildAccelerationStructure: opacity micromap arrays are built when created.");
 	}
 }
 
@@ -1530,20 +1650,6 @@ void D3D12RenderContext::BuildCompactedBLASes(std::span<const AccelerationStruct
 		return;
 	}
 
-	auto submit = [&](auto record)
-	{
-		std::unique_ptr<D3D12CommandList> cmdList = device_->CreateCommandList(D3D12CommandListType::Compute);
-		std::unique_ptr<D3D12Fence> fence = device_->CreateFence(0);
-		cmdList->SetName("BuildCompactedBLASes");
-		cmdList->BeginCommandList();
-		record(*cmdList);
-		cmdList->EndCommandList();
-		D3D12CommandList *cmds[] = { cmdList.get() };
-		const SubmitSyncInfo syncInfo = { .fence = fence.get(), .signalValue = 1 };
-		computeQueue_->ExecuteCommandLists(cmds, 1, syncInfo);
-		fence->Wait(1);
-	};
-
 	const uint64_t poolBytes = std::max(largestScratch, std::min(totalScratch, kScratchPoolBytes));
 	std::unique_ptr<D3D12Resource> scratchPool = device_->CreateAccelerationStructureBuffer(poolBytes, true);
 	scratchPool->SetName(L"BLASScratchPool");
@@ -1563,7 +1669,7 @@ void D3D12RenderContext::BuildCompactedBLASes(std::span<const AccelerationStruct
 	std::unique_ptr<D3D12Buffer> readback =
 			device_->CreateBuffer(readbackDesc, D3D12_HEAP_TYPE_READBACK, D3D12_BARRIER_LAYOUT_UNDEFINED);
 
-	submit(
+	SubmitComputeAndWait(
 			[&](D3D12CommandList &cmdList)
 			{
 				const D3D12_GPU_VIRTUAL_ADDRESS poolAddress = scratchPool->GetResource()->GetGPUVirtualAddress();
@@ -1601,7 +1707,7 @@ void D3D12RenderContext::BuildCompactedBLASes(std::span<const AccelerationStruct
 
 	// The builds finished with the last submission, so each BLAS can be copied out in its compacted size.
 	uint64_t compactedBytes = 0;
-	submit(
+	SubmitComputeAndWait(
 			[&](D3D12CommandList &cmdList)
 			{
 				for (size_t i = 0; i < blases.size(); ++i)

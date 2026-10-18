@@ -331,6 +331,7 @@ struct RaytracingPipelineDesc
 	std::vector<std::string>
 			defines; // Slang preprocessor defines ("NAME" or "NAME=VALUE"); use them for shader permutations
 	std::string profile = "lib_6_6"; // DXIL library target, "lib_6_9" for HitObject / MaybeReorderThread
+	bool allowOpacityMicromaps = false;
 };
 
 // DXR 1.2 shader execution reordering (HitObject and MaybeReorderThread in lib_6_9 shaders).
@@ -375,6 +376,29 @@ struct BLASGeometry
 	uint32_t indexCount = 0;
 	bool isOpaque = true;
 	bool noDuplicateAnyHit = false; // one any-hit call per primitive per ray, for accumulating any-hit shaders
+	// DXR 1.2 opacity micromaps (SupportsOpacityMicromaps): an int32 per triangle, an index into the array or
+	// a special index (OpacityMicromapSpecialIndex). The array must outlive the BLAS. Invalid for none.
+	AccelerationStructureHandle opacityMicromapArray = InvalidAccelerationStructureHandle;
+	ResourceHandle opacityMicromapIndexBuffer = InvalidResourceHandle;
+	uint64_t opacityMicromapIndexBufferOffset = 0; // bytes, a multiple of 4
+};
+
+// One opacity micromap of an array: 4^subdivisionLevel micro-triangles along the OC1 space-filling curve,
+// with 1 bit (2 states) or 2 bits (4 states) each, starting byteOffset bytes into the array's data.
+struct OpacityMicromap
+{
+	uint32_t byteOffset = 0;
+	uint16_t subdivisionLevel = 0; // 0..12
+	uint16_t states = 4; // 2 (transparent, opaque) or 4 (and unknown-transparent, unknown-opaque)
+};
+
+// Per-triangle micromap indices that stand for a whole triangle in one state, with no micromap.
+enum OpacityMicromapSpecialIndex : int32_t
+{
+	OpacityMicromapFullyTransparent = -1,
+	OpacityMicromapFullyOpaque = -2,
+	OpacityMicromapFullyUnknownTransparent = -3,
+	OpacityMicromapFullyUnknownOpaque = -4,
 };
 
 struct TLASInstance
@@ -481,6 +505,9 @@ public:
 	virtual void SetRaytracingScalarByName(const std::string &name, const void *data, uint32_t sizeInBytes) = 0;
 
 	virtual ShaderExecutionReorderingSupport GetShaderExecutionReorderingSupport() const = 0;
+	// DXR 1.2 opacity micromaps, for TraceRay with RaytracingPipelineDesc::allowOpacityMicromaps and for lib_6_9
+	// ray queries with RAYQUERY_FLAG_ALLOW_OPACITY_MICROMAPS.
+	virtual bool SupportsOpacityMicromaps() const = 0;
 
 	// Cheap: running totals and the OS budget, which refreshes once per frame.
 	virtual GPUMemoryStats GetMemoryStats() const = 0;
@@ -492,6 +519,9 @@ public:
 	virtual void BuildShaderTable(ShaderTableHandle table) = 0;
 	virtual void DispatchRays(ShaderTableHandle table, uint32_t width, uint32_t height, uint32_t depth) = 0;
 
+	// Builds and compacts the array on the compute queue before it returns, so BLASes can link it.
+	virtual AccelerationStructureHandle CreateOpacityMicromapArray(std::span<const uint8_t> data,
+																   std::span<const OpacityMicromap> micromaps) = 0;
 	virtual AccelerationStructureHandle CreateBLAS(const BLASGeometry &geometry) = 0;
 	virtual AccelerationStructureHandle CreateTLAS(std::span<const TLASInstance> instances) = 0;
 	virtual void BuildAccelerationStructure(AccelerationStructureHandle handle) = 0;

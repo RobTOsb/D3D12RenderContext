@@ -3,6 +3,7 @@
 #include "D3D12RHI.h"
 #include "RenderContext.h"
 
+#include <functional>
 #include <set>
 #include <utility>
 
@@ -126,6 +127,7 @@ public:
 	void SetRaytracingScalarByName(const std::string &name, const void *data, uint32_t sizeInBytes) override;
 
 	ShaderExecutionReorderingSupport GetShaderExecutionReorderingSupport() const override;
+	bool SupportsOpacityMicromaps() const override;
 
 	GPUMemoryStats GetMemoryStats() const override;
 
@@ -136,6 +138,8 @@ public:
 	void BuildShaderTable(ShaderTableHandle table) override;
 	void DispatchRays(ShaderTableHandle table, uint32_t width, uint32_t height, uint32_t depth) override;
 
+	AccelerationStructureHandle CreateOpacityMicromapArray(std::span<const uint8_t> data,
+														   std::span<const OpacityMicromap> micromaps) override;
 	AccelerationStructureHandle CreateBLAS(const BLASGeometry &geometry) override;
 	AccelerationStructureHandle CreateTLAS(std::span<const TLASInstance> instances) override;
 	void BuildAccelerationStructure(AccelerationStructureHandle handle) override;
@@ -320,16 +324,22 @@ private:
 	enum class AccelerationStructureKind
 	{
 		BLAS,
-		TLAS
+		TLAS,
+		OpacityMicromapArray
 	};
+
 	struct AccelerationStructureEntry
 	{
 		AccelerationStructureKind kind = AccelerationStructureKind::BLAS;
 		std::unique_ptr<D3D12BottomLevelAS> blas;
 		std::unique_ptr<D3D12TopLevelAS> tlas;
+		std::unique_ptr<D3D12OpacityMicromapArray> opacityMicromaps;
 		ResourceHandle srvResourceHandle = InvalidResourceHandle; // lazily registered in resources_
 	};
+	
 	std::unordered_map<AccelerationStructureHandle, AccelerationStructureEntry> accelerationStructures_;
+	// Records commands on a compute queue command list, submits them and waits for them to finish.
+	void SubmitComputeAndWait(const std::function<void(D3D12CommandList &)> &record);
 	AccelerationStructureHandle nextAccelerationStructureHandle_ = 0;
 
 	std::unordered_map<CommandSignatureHandle, Microsoft::WRL::ComPtr<ID3D12CommandSignature>> commandSignatures_;
