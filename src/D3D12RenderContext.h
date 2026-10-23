@@ -143,6 +143,7 @@ public:
 	AccelerationStructureHandle CreateBLAS(const BLASGeometry &geometry) override;
 	AccelerationStructureHandle CreateTLAS(std::span<const TLASInstance> instances) override;
 	void BuildAccelerationStructure(AccelerationStructureHandle handle) override;
+	void UpdateTLAS(AccelerationStructureHandle handle, std::span<const TLASInstance> instances) override;
 	void BuildCompactedBLASes(std::span<const AccelerationStructureHandle> handles) override;
 	ResourceHandle GetAccelerationStructureSRV(AccelerationStructureHandle handle) override;
 	void DestroyAccelerationStructure(AccelerationStructureHandle handle) override;
@@ -338,6 +339,7 @@ private:
 	};
 	
 	std::unordered_map<AccelerationStructureHandle, AccelerationStructureEntry> accelerationStructures_;
+	std::vector<TLASInstanceDesc> ToNativeTLASInstances(std::span<const TLASInstance> instances) const;
 	// Records commands on a compute queue command list, submits them and waits for them to finish.
 	void SubmitComputeAndWait(const std::function<void(D3D12CommandList &)> &record);
 	AccelerationStructureHandle nextAccelerationStructureHandle_ = 0;

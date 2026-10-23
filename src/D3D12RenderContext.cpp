@@ -1566,7 +1566,7 @@ AccelerationStructureHandle D3D12RenderContext::CreateBLAS(const BLASGeometry &g
 	return handle;
 }
 
-AccelerationStructureHandle D3D12RenderContext::CreateTLAS(std::span<const TLASInstance> instances)
+std::vector<TLASInstanceDesc> D3D12RenderContext::ToNativeTLASInstances(std::span<const TLASInstance> instances) const
 {
 	std::vector<TLASInstanceDesc> nativeInstances;
 	nativeInstances.reserve(instances.size());
@@ -1576,7 +1576,7 @@ AccelerationStructureHandle D3D12RenderContext::CreateTLAS(std::span<const TLASI
 		auto blasIt = accelerationStructures_.find(instance.blas);
 		if (blasIt == accelerationStructures_.end() || blasIt->second.kind != AccelerationStructureKind::BLAS)
 		{
-			throw std::runtime_error("CreateTLAS: invalid BLAS handle in instance list.");
+			throw std::runtime_error("TLAS instance list: invalid BLAS handle.");
 		}
 
 		TLASInstanceDesc nativeInstance;
@@ -1587,14 +1587,31 @@ AccelerationStructureHandle D3D12RenderContext::CreateTLAS(std::span<const TLASI
 		nativeInstance.hitGroupIndex = instance.hitGroupIndex;
 		nativeInstances.push_back(nativeInstance);
 	}
+	return nativeInstances;
+}
 
+AccelerationStructureHandle D3D12RenderContext::CreateTLAS(std::span<const TLASInstance> instances)
+{
 	AccelerationStructureEntry entry;
 	entry.kind = AccelerationStructureKind::TLAS;
-	entry.tlas = std::make_unique<D3D12TopLevelAS>(device_.get(), nativeInstances);
+	entry.tlas = std::make_unique<D3D12TopLevelAS>(device_.get(), ToNativeTLASInstances(instances));
 
 	const AccelerationStructureHandle handle = nextAccelerationStructureHandle_++;
 	accelerationStructures_[handle] = std::move(entry);
 	return handle;
+}
+
+void D3D12RenderContext::UpdateTLAS(AccelerationStructureHandle handle, std::span<const TLASInstance> instances)
+{
+	auto it = accelerationStructures_.find(handle);
+	if (it == accelerationStructures_.end() || it->second.kind != AccelerationStructureKind::TLAS)
+	{
+		throw std::runtime_error("UpdateTLAS: handle does not refer to a TLAS.");
+	}
+
+	D3D12TopLevelAS &tlas = *it->second.tlas;
+	tlas.SetInstances(ToNativeTLASInstances(instances), currentFrameIndex_, framesInFlight_);
+	tlas.Build(perFrameResources_[currentFrameIndex_].graphicsCommandList.get());
 }
 
 void D3D12RenderContext::BuildAccelerationStructure(AccelerationStructureHandle handle)

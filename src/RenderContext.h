@@ -525,6 +525,9 @@ public:
 	virtual AccelerationStructureHandle CreateBLAS(const BLASGeometry &geometry) = 0;
 	virtual AccelerationStructureHandle CreateTLAS(std::span<const TLASInstance> instances) = 0;
 	virtual void BuildAccelerationStructure(AccelerationStructureHandle handle) = 0;
+	// Replaces a TLAS's instances, as many as it was created with, and rebuilds it on the current
+	// frame's graphics command list. Follow with UAVBarrierForAccelerationStructures before tracing it.
+	virtual void UpdateTLAS(AccelerationStructureHandle handle, std::span<const TLASInstance> instances) = 0;
 	virtual void BuildCompactedBLASes(std::span<const AccelerationStructureHandle> handles) = 0;
 	virtual ResourceHandle GetAccelerationStructureSRV(AccelerationStructureHandle handle) = 0;
 	virtual void DestroyAccelerationStructure(AccelerationStructureHandle handle) = 0;
