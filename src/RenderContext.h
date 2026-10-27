@@ -401,6 +401,15 @@ enum OpacityMicromapSpecialIndex : int32_t
 	OpacityMicromapFullyUnknownOpaque = -4,
 };
 
+// TLASInstance::flags, the values of the matching D3D12_RAYTRACING_INSTANCE_FLAGS.
+enum TLASInstanceFlags : uint32_t
+{
+	TLASInstanceFlagNone = 0,
+	// The instance's opacity micromaps read in 2-state mode: unknown micro-triangles are taken as opaque or
+	// transparent without running the any-hit shader, as RAY_FLAG_FORCE_OMM_2_STATE does for a whole ray.
+	TLASInstanceFlagForceOpacityMicromap2State = 0x10,
+};
+
 struct TLASInstance
 {
 	AccelerationStructureHandle blas = InvalidAccelerationStructureHandle;
@@ -408,6 +417,7 @@ struct TLASInstance
 	uint32_t instanceID = 0;
 	uint32_t instanceMask = 0xFF;
 	uint32_t hitGroupIndex = 0;
+	uint32_t flags = TLASInstanceFlagNone; // TLASInstanceFlags
 };
 
 enum class IndirectCommandType

@@ -1585,6 +1585,7 @@ std::vector<TLASInstanceDesc> D3D12RenderContext::ToNativeTLASInstances(std::spa
 		nativeInstance.instanceID = instance.instanceID;
 		nativeInstance.instanceMask = instance.instanceMask;
 		nativeInstance.hitGroupIndex = instance.hitGroupIndex;
+		nativeInstance.flags = static_cast<D3D12_RAYTRACING_INSTANCE_FLAGS>(instance.flags);
 		nativeInstances.push_back(nativeInstance);
 	}
 	return nativeInstances;
