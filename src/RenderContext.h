@@ -532,7 +532,12 @@ public:
 	// Builds and compacts the array on the compute queue before it returns, so BLASes can link it.
 	virtual AccelerationStructureHandle CreateOpacityMicromapArray(std::span<const uint8_t> data,
 																   std::span<const OpacityMicromap> micromaps) = 0;
-	virtual AccelerationStructureHandle CreateBLAS(const BLASGeometry &geometry) = 0;
+	// One BLAS over the geometries, which GeometryIndex() numbers in span order.
+	virtual AccelerationStructureHandle CreateBLAS(std::span<const BLASGeometry> geometries) = 0;
+	AccelerationStructureHandle CreateBLAS(const BLASGeometry &geometry)
+	{
+		return CreateBLAS(std::span<const BLASGeometry>(&geometry, 1));
+	}
 	virtual AccelerationStructureHandle CreateTLAS(std::span<const TLASInstance> instances) = 0;
 	virtual void BuildAccelerationStructure(AccelerationStructureHandle handle) = 0;
 	// Replaces a TLAS's instances, as many as it was created with, and rebuilds it on the current

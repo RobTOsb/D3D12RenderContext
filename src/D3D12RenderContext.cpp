@@ -1514,52 +1514,62 @@ AccelerationStructureHandle D3D12RenderContext::CreateOpacityMicromapArray(std::
 	return handle;
 }
 
-AccelerationStructureHandle D3D12RenderContext::CreateBLAS(const BLASGeometry &geometry)
+AccelerationStructureHandle D3D12RenderContext::CreateBLAS(std::span<const BLASGeometry> geometries)
 {
-	auto vertexIt = resources_.find(geometry.vertexBuffer);
-	auto indexIt = resources_.find(geometry.indexBuffer);
-	if (vertexIt == resources_.end() || indexIt == resources_.end())
+	if (geometries.empty())
 	{
-		throw std::runtime_error("CreateBLAS: invalid vertex or index buffer handle.");
+		throw std::runtime_error("CreateBLAS: no geometries.");
 	}
-
-	BLASGeometryDesc nativeGeometry;
-	nativeGeometry.vertexBufferVA =
-			vertexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress() + geometry.vertexBufferOffset;
-	nativeGeometry.vertexCount = geometry.vertexCount;
-	nativeGeometry.vertexStride = geometry.vertexStride;
-	nativeGeometry.indexBufferVA =
-			indexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress() + geometry.indexBufferOffset;
-	nativeGeometry.indexCount = geometry.indexCount;
-	nativeGeometry.indexFormat = DXGI_FORMAT_R32_UINT;
-	nativeGeometry.isOpaque = geometry.isOpaque;
-	nativeGeometry.noDuplicateAnyHit = geometry.noDuplicateAnyHit;
-	if (geometry.opacityMicromapIndexBuffer != InvalidResourceHandle)
+	std::vector<BLASGeometryDesc> nativeGeometries;
+	nativeGeometries.reserve(geometries.size());
+	for (const BLASGeometry &geometry: geometries)
 	{
-		auto ommIndexIt = resources_.find(geometry.opacityMicromapIndexBuffer);
-		if (ommIndexIt == resources_.end())
+		auto vertexIt = resources_.find(geometry.vertexBuffer);
+		auto indexIt = resources_.find(geometry.indexBuffer);
+		if (vertexIt == resources_.end() || indexIt == resources_.end())
 		{
-			throw std::runtime_error("CreateBLAS: invalid opacity micromap index buffer handle.");
+			throw std::runtime_error("CreateBLAS: invalid vertex or index buffer handle.");
 		}
-		nativeGeometry.opacityMicromapIndexBufferVA =
-				ommIndexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress() +
-				geometry.opacityMicromapIndexBufferOffset;
-		// No array is fine when every index is a special one.
-		if (geometry.opacityMicromapArray != InvalidAccelerationStructureHandle)
+
+		BLASGeometryDesc nativeGeometry;
+		nativeGeometry.vertexBufferVA =
+				vertexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress() + geometry.vertexBufferOffset;
+		nativeGeometry.vertexCount = geometry.vertexCount;
+		nativeGeometry.vertexStride = geometry.vertexStride;
+		nativeGeometry.indexBufferVA =
+				indexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress() + geometry.indexBufferOffset;
+		nativeGeometry.indexCount = geometry.indexCount;
+		nativeGeometry.indexFormat = DXGI_FORMAT_R32_UINT;
+		nativeGeometry.isOpaque = geometry.isOpaque;
+		nativeGeometry.noDuplicateAnyHit = geometry.noDuplicateAnyHit;
+		if (geometry.opacityMicromapIndexBuffer != InvalidResourceHandle)
 		{
-			auto arrayIt = accelerationStructures_.find(geometry.opacityMicromapArray);
-			if (arrayIt == accelerationStructures_.end() ||
-				arrayIt->second.kind != AccelerationStructureKind::OpacityMicromapArray)
+			auto ommIndexIt = resources_.find(geometry.opacityMicromapIndexBuffer);
+			if (ommIndexIt == resources_.end())
 			{
-				throw std::runtime_error("CreateBLAS: invalid opacity micromap array handle.");
+				throw std::runtime_error("CreateBLAS: invalid opacity micromap index buffer handle.");
 			}
-			nativeGeometry.opacityMicromapArrayVA = arrayIt->second.opacityMicromaps->GetGPUVirtualAddress();
+			nativeGeometry.opacityMicromapIndexBufferVA =
+					ommIndexIt->second.resourcePtr->GetResource()->GetGPUVirtualAddress() +
+					geometry.opacityMicromapIndexBufferOffset;
+			// No array is fine when every index is a special one.
+			if (geometry.opacityMicromapArray != InvalidAccelerationStructureHandle)
+			{
+				auto arrayIt = accelerationStructures_.find(geometry.opacityMicromapArray);
+				if (arrayIt == accelerationStructures_.end() ||
+					arrayIt->second.kind != AccelerationStructureKind::OpacityMicromapArray)
+				{
+					throw std::runtime_error("CreateBLAS: invalid opacity micromap array handle.");
+				}
+				nativeGeometry.opacityMicromapArrayVA = arrayIt->second.opacityMicromaps->GetGPUVirtualAddress();
+			}
 		}
+		nativeGeometries.push_back(nativeGeometry);
 	}
 
 	AccelerationStructureEntry entry;
 	entry.kind = AccelerationStructureKind::BLAS;
-	entry.blas = std::make_unique<D3D12BottomLevelAS>(device_.get(), nativeGeometry);
+	entry.blas = std::make_unique<D3D12BottomLevelAS>(device_.get(), nativeGeometries);
 
 	const AccelerationStructureHandle handle = nextAccelerationStructureHandle_++;
 	accelerationStructures_[handle] = std::move(entry);

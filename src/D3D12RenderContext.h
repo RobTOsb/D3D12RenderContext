@@ -140,7 +140,7 @@ public:
 
 	AccelerationStructureHandle CreateOpacityMicromapArray(std::span<const uint8_t> data,
 														   std::span<const OpacityMicromap> micromaps) override;
-	AccelerationStructureHandle CreateBLAS(const BLASGeometry &geometry) override;
+	AccelerationStructureHandle CreateBLAS(std::span<const BLASGeometry> geometries) override;
 	AccelerationStructureHandle CreateTLAS(std::span<const TLASInstance> instances) override;
 	void BuildAccelerationStructure(AccelerationStructureHandle handle) override;
 	void UpdateTLAS(AccelerationStructureHandle handle, std::span<const TLASInstance> instances) override;
